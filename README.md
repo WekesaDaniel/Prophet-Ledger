@@ -1,8 +1,3 @@
-# ProphetLedger
-Financial Intelligence platform
-
-
-
 <div align="center">
   
   <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
@@ -11,7 +6,7 @@ Financial Intelligence platform
   <img src="https://img.shields.io/badge/fastapi-0.104.1-009688.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/license-MIT-purple.svg" alt="License">
   
-  <h1>🔮 ProphtScan</h1>
+  <h1>🔮 ProphetLedger</h1>
   <h3>AI-Driven Financial Intelligence Platform</h3>
   <p><em>Personal · Small Business · Enterprise</em></p>
   
@@ -29,6 +24,9 @@ Financial Intelligence platform
 - [Features](#-features)
 - [Tech Stack](#-tech-stack)
 - [Project Structure](#-project-structure)
+  - [Backend Structure](#backend-structure)
+  - [Frontend Structure](#frontend-structure)
+  - [Component Hierarchy](#component-hierarchy)
 - [Team & Responsibilities](#-team--responsibilities)
 - [Quick Start](#-quick-start)
 - [Development Guide](#-development-guide)
@@ -43,7 +41,7 @@ Financial Intelligence platform
 
 ## 🎯 Overview
 
-**ProphtScan** is an adaptive financial intelligence platform that provides AI-powered forecasting, anomaly detection, PDF invoice scanning, and decision support. The UI dynamically adapts to three modes:
+**ProphetLedger** is an adaptive financial intelligence platform that provides AI-powered forecasting, anomaly detection, PDF invoice scanning, and decision support. The UI dynamically adapts to three modes:
 
 | Mode | Target User | Key Features |
 |------|-------------|--------------|
@@ -51,7 +49,7 @@ Financial Intelligence platform
 | 🏢 **Small Business** | Freelancers & SMBs | Cash flow management, invoice scanning, risk scoring |
 | 🏛️ **Enterprise** | Large Organizations | Department-level analytics, role-based access, audit logs |
 
-**Problem Solved:** Most financial tools are either too simple (spreadsheets) or too complex (enterprise ERP). ProphtScan bridges the gap with AI that grows with you.
+**Problem Solved:** Most financial tools are either too simple (spreadsheets) or too complex (enterprise ERP). ProphetLedger bridges the gap with AI that grows with you.
 
 ---
 
@@ -117,9 +115,10 @@ GitHub Actions   - CI/CD (optional)
 
 ## 📁 Project Structure
 
+### Backend Structure
+
 ```
-prophtscan/
-│
+prophetledger/
 ├── backend/                          # FastAPI backend service
 │   ├── app/
 │   │   ├── main.py                   # Application entry point
@@ -170,82 +169,124 @@ prophtscan/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env
-│
-├── frontend/                         # React frontend
-│   ├── public/
-│   │   └── index.html
-│   │
-│   ├── src/
-│   │   ├── index.js                  # Entry point
-│   │   ├── App.js                    # Main component
-│   │   ├── index.css
-│   │   │
-│   │   ├── contexts/                 # React contexts
-│   │   │   ├── AuthContext.jsx
-│   │   │   └── ModeContext.jsx
-│   │   │
-│   │   ├── pages/                    # Page components
-│   │   │   ├── Login.jsx
-│   │   │   ├── Register.jsx
-│   │   │   ├── ModeSelector.jsx
-│   │   │   ├── Dashboard.jsx         # ⭐ Main dashboard
-│   │   │   ├── Invoices.jsx
-│   │   │   └── Settings.jsx
-│   │   │
-│   │   ├── components/
-│   │   │   ├── layout/
-│   │   │   │   ├── Header.jsx
-│   │   │   │   ├── Sidebar.jsx
-│   │   │   │   └── Footer.jsx
-│   │   │   │
-│   │   │   ├── dashboard/            # ⭐ Dashboard UI
-│   │   │   │   ├── KpiGrid.jsx
-│   │   │   │   ├── RiskHeatmap.jsx
-│   │   │   │   ├── TrendChart.jsx
-│   │   │   │   ├── AnomalyTable.jsx
-│   │   │   │   ├── AlertCenter.jsx
-│   │   │   │   └── RecommendationPanel.jsx
-│   │   │   │
-│   │   │   ├── dss/                  # ⭐ DSS UI
-│   │   │   │   ├── ScenarioSimulator.jsx
-│   │   │   │   ├── ScoreMeter.jsx
-│   │   │   │   └── VendorRiskCard.jsx
-│   │   │   │
-│   │   │   ├── invoices/
-│   │   │   │   ├── PDFUploader.jsx
-│   │   │   │   └── InvoicePreview.jsx
-│   │   │   │
-│   │   │   ├── chat/
-│   │   │   │   └── Chatbot.jsx
-│   │   │   │
-│   │   │   └── shared/
-│   │   │       ├── LoadingSpinner.jsx
-│   │   │       ├── ErrorBoundary.jsx
-│   │   │       └── StatusBadge.jsx
-│   │   │
-│   │   ├── services/                 # API clients
-│   │   │   ├── api.js                # Axios instance
-│   │   │   ├── authService.js
-│   │   │   ├── dssService.js         # ⭐ DSS API calls
-│   │   │   └── transactionService.js
-│   │   │
-│   │   ├── hooks/                    # Custom hooks
-│   │   │   ├── useAuth.js
-│   │   │   └── useDSS.js             # ⭐ DSS data fetching
-│   │   │
-│   │   └── utils/
-│   │       ├── formatters.js
-│   │       └── charts.js
-│   │
-│   ├── package.json
-│   ├── tailwind.config.js
-│   ├── Dockerfile
-│   └── .env
-│
-├── docker-compose.yml                # Multi-container setup
-├── .gitignore
-└── README.md                         # You are here!
 ```
+
+### Frontend Structure
+
+```
+frontend/
+├── public/
+│   └── index.html
+│
+├── src/
+│   ├── index.js                      # Entry point
+│   ├── App.js                        # Main component ✅ Routing setup
+│   ├── index.css                     # Tailwind configured
+│   │
+│   ├── contexts/                     # React contexts
+│   │   ├── AuthContext.jsx           # ✅ Authentication state
+│   │   └── ModeContext.jsx           # ✅ Mode management
+│   │
+│   ├── pages/                        # Page components
+│   │   ├── Login.jsx
+│   │   ├── Register.jsx
+│   │   ├── ModeSelector.jsx          # ✅ Ready
+│   │   ├── Dashboard.jsx             # ✅ Complete dashboard UI
+│   │   ├── Invoices.jsx
+│   │   └── Settings.jsx
+│   │
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── Header.jsx            # ✅ Navigation header
+│   │   │   ├── Sidebar.jsx           # ✅ Sidebar navigation
+│   │   │   └── Footer.jsx
+│   │   │
+│   │   ├── dashboard/                # ✅ Dashboard UI (6 components)
+│   │   │   ├── KpiGrid.jsx           # KPI cards with trends
+│   │   │   ├── RiskHeatmap.jsx       # Risk visualization
+│   │   │   ├── TrendChart.jsx        # Line charts with anomalies
+│   │   │   ├── AnomalyTable.jsx      # Anomaly list
+│   │   │   ├── AlertCenter.jsx       # Notification center
+│   │   │   └── RecommendationPanel.jsx # DSS recommendations
+│   │   │
+│   │   ├── dss/                      # ✅ DSS UI (4 components)
+│   │   │   ├── ScenarioSimulator.jsx # What-if simulations
+│   │   │   ├── ScoreMeter.jsx        # Risk gauge
+│   │   │   ├── VendorRiskCard.jsx    # Vendor scoring
+│   │   │   └── KpiDetailModal.jsx    # Deep dive KPI
+│   │   │
+│   │   ├── invoices/
+│   │   │   ├── PDFUploader.jsx
+│   │   │   └── InvoicePreview.jsx
+│   │   │
+│   │   ├── chat/
+│   │   │   └── Chatbot.jsx
+│   │   │
+│   │   └── shared/                   # ✅ Shared components (4 components)
+│   │       ├── PrivateRoute.jsx      # Protected routes
+│   │       ├── LoadingSpinner.jsx    # Loading indicator
+│   │       ├── ErrorBoundary.jsx     # Error handling
+│   │       └── StatusBadge.jsx       # Status indicators
+│   │
+│   ├── services/                     # API clients
+│   │   ├── api.js                    # ✅ Axios configured
+│   │   ├── authService.js
+│   │   ├── dssService.js             # ⭐ DSS API calls
+│   │   └── transactionService.js
+│   │
+│   ├── hooks/                        # Custom hooks
+│   │   ├── useAuth.js
+│   │   └── useDSS.js                 # ⭐ DSS data fetching
+│   │
+│   └── utils/
+│       ├── formatters.js
+│       └── charts.js
+│
+├── package.json                      # ✅ Dependencies
+├── tailwind.config.js                # ✅ Configured
+├── postcss.config.js
+├── Dockerfile
+└── .env                              # ✅ API URL set
+```
+
+### Component Hierarchy Summary
+
+```
+frontend/src/
+├── App.js                      ✅ Full routing with PrivateRoute
+├── index.js                    ✅ Entry point
+├── index.css                   ✅ Tailwind configured
+├── contexts/
+│   ├── AuthContext.jsx         ✅ Authentication state
+│   └── ModeContext.jsx         ✅ Mode management
+├── pages/
+│   └── Dashboard.jsx           ✅ Complete dashboard UI
+├── components/
+│   ├── layout/
+│   │   ├── Header.jsx          ✅ Navigation header
+│   │   └── Sidebar.jsx         ✅ Sidebar navigation
+│   ├── dashboard/
+│   │   ├── KpiGrid.jsx         ✅ KPI cards with trends
+│   │   ├── TrendChart.jsx      ✅ Line charts with anomalies
+│   │   └── AlertCenter.jsx     ✅ Notification center
+│   ├── dss/
+│   │   └── ScenarioSimulator.jsx ✅ What-if simulations
+│   └── shared/
+│       ├── PrivateRoute.jsx    ✅ Protected routes
+│       ├── LoadingSpinner.jsx  ✅ Loading indicator
+│       ├── ErrorBoundary.jsx   ✅ Error handling
+│       └── StatusBadge.jsx     ✅ Status indicators
+└── services/
+    └── api.js                  ✅ Axios configured
+```
+
+### File Status Legend
+
+| Icon | Meaning |
+|------|---------|
+| ✅ | File created and configured |
+| ⭐ | Core DSS component |
+| 📁 | Directory |
 
 ---
 
@@ -287,8 +328,8 @@ Git
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/prophtscan.git
-cd prophtscan
+git clone https://github.com/your-org/prophetledger.git
+cd prophetledger
 
 # 2. Build and run all services
 docker-compose up --build
@@ -304,9 +345,9 @@ docker-compose up --build
 
 ```bash
 # Terminal 1: Database (using Docker for DB only)
-docker run --name prophtscan-db \
+docker run --name prophetledger-db \
   -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=prophtscan \
+  -e POSTGRES_DB=prophetledger \
   -p 5432:5432 -d postgres:15
 
 # Terminal 2: Backend
@@ -346,7 +387,7 @@ python scripts/seed_data.py
 
 **Backend (.env in `/backend`)**
 ```env
-DATABASE_URL=postgresql://postgres:secret@localhost:5432/prophtscan
+DATABASE_URL=postgresql://postgres:secret@localhost:5432/prophetledger
 SECRET_KEY=your-super-secret-key-change-this
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -451,7 +492,7 @@ curl -X POST "http://localhost:8000/api/dss/what-if/evaluate" \
 ### Login Credentials (After Seeding)
 
 ```
-Email: admin@prophtscan.com
+Email: admin@prophetledger.com
 Password: Admin123!
 
 # Or register a new user at /register
@@ -475,12 +516,12 @@ Password: Admin123!
 ```bash
 # Backend
 cd backend
-docker build -t prophtscan-backend:latest .
+docker build -t prophetledger-backend:latest .
 
 # Frontend
 cd frontend
 npm run build
-docker build -t prophtscan-frontend:latest .
+docker build -t prophetledger-frontend:latest .
 ```
 
 ### Deploy to Cloud (Example: AWS ECS)
@@ -492,22 +533,22 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_DB: prophtscan
+      POSTGRES_DB: prophetledger
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   backend:
-    image: prophtscan-backend:latest
+    image: prophetledger-backend:latest
     environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/prophtscan
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/prophetledger
       SECRET_KEY: ${SECRET_KEY}
     depends_on:
       - db
 
   frontend:
-    image: prophtscan-frontend:latest
+    image: prophetledger-frontend:latest
     ports:
       - "80:3000"
 ```
@@ -577,11 +618,13 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 <div align="center">
   
-  **Made with 🔮 by the ProphtScan Team**
+  **Made with 🔮 by the ProphetLedger Team**
   
-  [Report Bug](https://github.com/your-org/prophtscan/issues) · 
-  [Request Feature](https://github.com/your-org/prophtscan/issues) · 
-  [Documentation](https://docs.prophtscan.com)
+  [Report Bug](https://github.com/your-org/prophetledger/issues) · 
+  [Request Feature](https://github.com/your-org/prophetledger/issues) · 
+  [Documentation](https://docs.prophetledger.com)
   
 </div>
+
+
 

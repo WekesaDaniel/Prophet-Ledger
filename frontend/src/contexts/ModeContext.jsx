@@ -1,6 +1,7 @@
 ﻿import React, { createContext, useState, useContext, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import toast from 'react-hot-toast';
+import api from '../services/api';
 
 const ModeContext = createContext();
 
@@ -21,21 +22,15 @@ export const ModeProvider = ({ children }) => {
 
   const updateMode = async (newMode) => {
     try {
-      const response = await fetch(/api/users/mode, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': Bearer 
-        },
-        body: JSON.stringify({ mode: newMode })
-      });
+      const response = await api.patch('/users/mode', { mode: newMode });
       
       if (response.ok) {
         setMode(newMode);
         localStorage.setItem('userMode', newMode);
-        toast.success(Switched to  mode);
+        toast.success(`Switched to ${newMode} mode`);
       }
     } catch (error) {
+      console.error('Failed to update mode:', error);
       toast.error('Failed to update mode');
     }
   };
