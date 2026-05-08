@@ -17,14 +17,13 @@ const Login = () => {
     const success = await login(email, password);
     setLoading(false);
     if (success) {
-      navigate('/dashboard');
+      navigate('/mode-selector');
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">🔮</div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
@@ -33,7 +32,6 @@ const Login = () => {
           <p className="text-gray-500 text-sm mt-2">Sign in to your account</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -76,14 +74,6 @@ const Login = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="flex items-center">
-              <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
-              <span className="ml-2 text-sm text-gray-600">Remember me</span>
-            </label>
-            <a href="#" className="text-sm text-blue-600 hover:text-blue-700">Forgot password?</a>
-          </div>
-
           <button
             type="submit"
             disabled={loading}
@@ -100,7 +90,6 @@ const Login = () => {
           </button>
         </form>
 
-        {/* Register link */}
         <p className="text-center text-sm text-gray-600 mt-6">
           Don't have an account?{' '}
           <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">

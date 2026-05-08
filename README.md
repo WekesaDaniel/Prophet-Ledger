@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/badge/react-18.2.0-61dafb.svg" alt="React">
   <img src="https://img.shields.io/badge/fastapi-0.104.1-009688.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/license-MIT-purple.svg" alt="License">
+  <img src="https://img.shields.io/badge/branch-dev-orange.svg" alt="Branch">
   
   <h1>🔮 ProphetLedger</h1>
   <h3>AI-Driven Financial Intelligence Platform</h3>
@@ -24,16 +25,13 @@
 - [Features](#-features)
 - [Tech Stack](#-tech-stack)
 - [Project Structure](#-project-structure)
-  - [Backend Structure](#backend-structure)
-  - [Frontend Structure](#frontend-structure)
-  - [Component Hierarchy](#component-hierarchy)
 - [Team & Responsibilities](#-team--responsibilities)
+- [Development Setup](#-development-setup)
 - [Quick Start](#-quick-start)
 - [Development Guide](#-development-guide)
 - [API Documentation](#-api-documentation)
-- [Environment Variables](#-environment-variables)
 - [Testing](#-testing)
-- [Deployment](#-deployment)
+- [Git Workflow](#-git-workflow)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -41,40 +39,23 @@
 
 ## 🎯 Overview
 
-**ProphetLedger** is an adaptive financial intelligence platform that provides AI-powered forecasting, anomaly detection, PDF invoice scanning, and decision support. The UI dynamically adapts to three modes:
+**ProphetLedger** is an adaptive financial intelligence platform that provides AI-powered forecasting, anomaly detection, PDF invoice scanning, and decision support. The UI dynamically adapts to three modes: Personal, Small Business, and Enterprise.
 
-| Mode | Target User | Key Features |
-|------|-------------|--------------|
-| 👤 **Personal** | Individuals & Families | Budget tracking, expense categorization, basic forecasting |
-| 🏢 **Small Business** | Freelancers & SMBs | Cash flow management, invoice scanning, risk scoring |
-| 🏛️ **Enterprise** | Large Organizations | Department-level analytics, role-based access, audit logs |
-
-**Problem Solved:** Most financial tools are either too simple (spreadsheets) or too complex (enterprise ERP). ProphetLedger bridges the gap with AI that grows with you.
+**Current Branch:** `dev` - Development branch with latest features
 
 ---
 
 ## ✨ Features
 
-### Core Capabilities
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| 🤖 **PDF Invoice Scanner** | Extract vendor, amount, date, tax from any invoice | ✅ |
-| 📈 **Time-Series Forecasting** | ARIMA/LSTM models for cash flow prediction | ✅ |
-| 🚨 **Anomaly Detection** | Isolation Forest to flag unusual transactions | ✅ |
-| 🧠 **DSS Knowledge Engine** | Risk scoring, KPI engine, what-if simulations | ✅ |
-| 💬 **Chatbot Interface** | Natural language queries about finances | ✅ |
-| 🎨 **Adaptive UI** | Mode-based dashboard personalization | ✅ |
-| 🔒 **RBAC** | Role-based access control (Admin/Manager/Viewer) | ✅ |
-| 📊 **Audit Logging** | Complete action history for compliance | ✅ |
-
-### Decision Support System (DSS) Components
-
-- **Risk Engine**: 0-100 risk scoring with factor breakdown
-- **KPI Engine**: 10+ financial metrics with benchmarks
-- **Alert Engine**: Proactive notifications for anomalies, bills, budgets
-- **What-If Evaluator**: Scenario simulation (revenue changes, cost cuts, hiring)
-- **Scoring Engine**: Intelligent transaction categorization & vendor risk scoring
+| Feature | Description | Lead |
+|---------|-------------|------|
+| 🤖 **PDF Invoice Scanner** | Extract vendor, amount, date, tax from invoices | Daniel |
+| 📈 **Time-Series Forecasting** | ARIMA/LSTM models for cash flow prediction | Josiah |
+| 🚨 **Anomaly Detection** | Fraud detection & unusual transaction flagging | Arnold |
+| 🧠 **DSS Knowledge Engine** | Risk scoring, KPI engine, what-if simulations | Daniel |
+| 💬 **Chatbot Interface** | Natural language queries & transaction classification | Geoffrey |
+| 🎯 **Goal Setting** | Personalized savings & budget goals | Daniel |
+| 🔒 **Multi-Account** | Account aggregation & security | Arnold |
 
 ---
 
@@ -89,7 +70,6 @@ JWT              - Authentication
 Pandas/Numpy     - Data processing
 Scikit-learn     - Anomaly detection (Isolation Forest)
 Statsmodels      - ARIMA forecasting
-PDFPlumber       - PDF text extraction
 TensorFlow       - LSTM models (optional)
 ```
 
@@ -101,351 +81,365 @@ Recharts         - Business-grade charts
 Axios            - API client
 React Router     - Navigation
 Lucide React     - Icons
-React Dropzone   - File uploads
-```
-
-### DevOps
-```
-Docker           - Containerization
-Docker Compose   - Multi-container orchestration
-GitHub Actions   - CI/CD (optional)
 ```
 
 ---
 
 ## 📁 Project Structure
 
-### Backend Structure
-
 ```
 prophetledger/
-├── backend/                          # FastAPI backend service
+│
+├── backend/                          # FastAPI backend
 │   ├── app/
-│   │   ├── main.py                   # Application entry point
-│   │   ├── config.py                 # Environment configuration
-│   │   ├── database.py               # DB connection & session
+│   │   ├── main.py                   # Entry point
+│   │   ├── config.py                 # Config
+│   │   ├── database.py               # DB connection
 │   │   │
 │   │   ├── models/                   # SQLAlchemy models
-│   │   │   ├── user.py               # User + RBAC
-│   │   │   ├── transaction.py        # Financial transactions
-│   │   │   ├── invoice.py            # Scanned invoices
-│   │   │   ├── forecast.py           # Predictions storage
-│   │   │   ├── anomaly.py            # Detected anomalies
-│   │   │   └── audit_log.py          # Action history
+│   │   │   ├── user.py
+│   │   │   ├── transaction.py
+│   │   │   ├── invoice.py
+│   │   │   ├── forecast.py           # 👤 Josiah
+│   │   │   ├── anomaly.py            # 🔒 Arnold
+│   │   │   └── audit_log.py          # 🔒 Arnold
 │   │   │
 │   │   ├── api/                      # REST endpoints
-│   │   │   ├── auth.py               # Login/register
-│   │   │   ├── users.py              # User management
-│   │   │   ├── transactions.py       # CRUD operations
-│   │   │   ├── invoices.py           # PDF upload & scan
-│   │   │   ├── forecasts.py          # Forecasting API
-│   │   │   ├── anomalies.py          # Anomaly detection
-│   │   │   └── dss.py                # ⭐ DSS endpoints
+│   │   │   ├── auth.py
+│   │   │   ├── users.py
+│   │   │   ├── transactions.py
+│   │   │   ├── invoices.py           # 🧠 Daniel
+│   │   │   ├── forecasts.py          # 👤 Josiah
+│   │   │   ├── anomalies.py          # 🔒 Arnold
+│   │   │   ├── chatbot.py            # 💬 Geoffrey
+│   │   │   └── dss.py                # 🧠 Daniel
 │   │   │
 │   │   ├── services/                 # Business logic
-│   │   │   ├── auth_service.py
-│   │   │   ├── scanner.py            # PDF extraction
-│   │   │   ├── forecast.py           # ARIMA/LSTM
-│   │   │   ├── anomaly.py            # Isolation Forest
-│   │   │   ├── chatbot.py            # NLP responses
+│   │   │   ├── scanner.py            # 🧠 Daniel (PDF extraction)
+│   │   │   ├── forecast.py           # 👤 Josiah (ARIMA/LSTM)
+│   │   │   ├── anomaly.py            # 🔒 Arnold (Isolation Forest)
+│   │   │   ├── chatbot.py            # 💬 Geoffrey (NLP)
 │   │   │   │
-│   │   │   └── dss/                  # ⭐ Knowledge Engine
-│   │   │       ├── risk_engine.py    # Risk scoring
-│   │   │       ├── kpi_engine.py     # KPI calculations
-│   │   │       ├── scoring_engine.py # Classification
-│   │   │       ├── alert_engine.py   # Proactive alerts
+│   │   │   └── dss/                  # 🧠 Daniel (Knowledge Engine)
+│   │   │       ├── risk_engine.py
+│   │   │       ├── kpi_engine.py
+│   │   │       ├── scoring_engine.py # 💬 Geoffrey (classification)
+│   │   │       ├── alert_engine.py
 │   │   │       └── what_if_evaluator.py
 │   │   │
-│   │   ├── middleware/               # Request interceptors
-│   │   │   ├── auth.py               # JWT verification
-│   │   │   └── audit.py              # Logging middleware
+│   │   ├── middleware/               # 🔒 Arnold
+│   │   │   ├── auth.py
+│   │   │   └── audit.py
 │   │   │
-│   │   └── utils/                    # Helpers
+│   │   └── utils/
 │   │       ├── helpers.py
 │   │       └── validators.py
 │   │
-│   ├── migrations/                   # Alembic migrations
-│   ├── tests/                        # Pytest suite
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env
-```
-
-### Frontend Structure
-
-```
-frontend/
-├── public/
-│   └── index.html
 │
-├── src/
-│   ├── index.js                      # Entry point
-│   ├── App.js                        # Main component ✅ Routing setup
-│   ├── index.css                     # Tailwind configured
-│   │
-│   ├── contexts/                     # React contexts
-│   │   ├── AuthContext.jsx           # ✅ Authentication state
-│   │   └── ModeContext.jsx           # ✅ Mode management
-│   │
-│   ├── pages/                        # Page components
-│   │   ├── Login.jsx
-│   │   ├── Register.jsx
-│   │   ├── ModeSelector.jsx          # ✅ Ready
-│   │   ├── Dashboard.jsx             # ✅ Complete dashboard UI
-│   │   ├── Invoices.jsx
-│   │   └── Settings.jsx
-│   │
-│   ├── components/
-│   │   ├── layout/
-│   │   │   ├── Header.jsx            # ✅ Navigation header
-│   │   │   ├── Sidebar.jsx           # ✅ Sidebar navigation
-│   │   │   └── Footer.jsx
-│   │   │
-│   │   ├── dashboard/                # ✅ Dashboard UI (6 components)
-│   │   │   ├── KpiGrid.jsx           # KPI cards with trends
-│   │   │   ├── RiskHeatmap.jsx       # Risk visualization
-│   │   │   ├── TrendChart.jsx        # Line charts with anomalies
-│   │   │   ├── AnomalyTable.jsx      # Anomaly list
-│   │   │   ├── AlertCenter.jsx       # Notification center
-│   │   │   └── RecommendationPanel.jsx # DSS recommendations
-│   │   │
-│   │   ├── dss/                      # ✅ DSS UI (4 components)
-│   │   │   ├── ScenarioSimulator.jsx # What-if simulations
-│   │   │   ├── ScoreMeter.jsx        # Risk gauge
-│   │   │   ├── VendorRiskCard.jsx    # Vendor scoring
-│   │   │   └── KpiDetailModal.jsx    # Deep dive KPI
-│   │   │
-│   │   ├── invoices/
-│   │   │   ├── PDFUploader.jsx
-│   │   │   └── InvoicePreview.jsx
-│   │   │
-│   │   ├── chat/
-│   │   │   └── Chatbot.jsx
-│   │   │
-│   │   └── shared/                   # ✅ Shared components (4 components)
-│   │       ├── PrivateRoute.jsx      # Protected routes
-│   │       ├── LoadingSpinner.jsx    # Loading indicator
-│   │       ├── ErrorBoundary.jsx     # Error handling
-│   │       └── StatusBadge.jsx       # Status indicators
-│   │
-│   ├── services/                     # API clients
-│   │   ├── api.js                    # ✅ Axios configured
-│   │   ├── authService.js
-│   │   ├── dssService.js             # ⭐ DSS API calls
-│   │   └── transactionService.js
-│   │
-│   ├── hooks/                        # Custom hooks
-│   │   ├── useAuth.js
-│   │   └── useDSS.js                 # ⭐ DSS data fetching
-│   │
-│   └── utils/
-│       ├── formatters.js
-│       └── charts.js
-│
-├── package.json                      # ✅ Dependencies
-├── tailwind.config.js                # ✅ Configured
-├── postcss.config.js
-├── Dockerfile
-└── .env                              # ✅ API URL set
+└── frontend/                         # React frontend
+    ├── src/
+    │   ├── App.js
+    │   ├── index.js
+    │   ├── index.css
+    │   │
+    │   ├── contexts/
+    │   │   ├── AuthContext.jsx
+    │   │   └── ModeContext.jsx
+    │   │
+    │   ├── pages/
+    │   │   ├── Login.jsx
+    │   │   ├── Register.jsx
+    │   │   ├── ModeSelector.jsx
+    │   │   ├── Dashboard.jsx         # 🧠 Daniel
+    │   │   ├── Invoices.jsx          # 🧠 Daniel
+    │   │   └── Settings.jsx
+    │   │
+    │   ├── components/
+    │   │   ├── layout/
+    │   │   │   ├── Header.jsx
+    │   │   │   └── Sidebar.jsx
+    │   │   │
+    │   │   ├── dashboard/            # 🧠 Daniel
+    │   │   │   ├── KpiGrid.jsx
+    │   │   │   ├── RiskHeatmap.jsx
+    │   │   │   ├── TrendChart.jsx    # 👤 Josiah
+    │   │   │   ├── AnomalyTable.jsx  # 🔒 Arnold
+    │   │   │   └── AlertCenter.jsx
+    │   │   │
+    │   │   ├── dss/                  # 🧠 Daniel
+    │   │   │   ├── ScenarioSimulator.jsx
+    │   │   │   └── ScoreMeter.jsx
+    │   │   │
+    │   │   ├── invoices/             # 🧠 Daniel
+    │   │   │   └── PDFUploader.jsx
+    │   │   │
+    │   │   ├── chat/                 # 💬 Geoffrey
+    │   │   │   └── Chatbot.jsx
+    │   │   │
+    │   │   └── shared/
+    │   │       ├── PrivateRoute.jsx
+    │   │       └── LoadingSpinner.jsx
+    │   │
+    │   ├── services/                 # API clients
+    │   │   ├── api.js
+    │   │   ├── authService.js
+    │   │   ├── dssService.js         # 🧠 Daniel
+    │   │   ├── forecastService.js    # 👤 Josiah
+    │   │   ├── anomalyService.js     # 🔒 Arnold
+    │   │   └── chatService.js        # 💬 Geoffrey
+    │   │
+    │   └── hooks/
+    │       ├── useAuth.js
+    │       └── useDSS.js             # 🧠 Daniel
+    │
+    ├── package.json
+    ├── tailwind.config.js
+    └── .env
 ```
-
-### Component Hierarchy Summary
-
-```
-frontend/src/
-├── App.js                      ✅ Full routing with PrivateRoute
-├── index.js                    ✅ Entry point
-├── index.css                   ✅ Tailwind configured
-├── contexts/
-│   ├── AuthContext.jsx         ✅ Authentication state
-│   └── ModeContext.jsx         ✅ Mode management
-├── pages/
-│   └── Dashboard.jsx           ✅ Complete dashboard UI
-├── components/
-│   ├── layout/
-│   │   ├── Header.jsx          ✅ Navigation header
-│   │   └── Sidebar.jsx         ✅ Sidebar navigation
-│   ├── dashboard/
-│   │   ├── KpiGrid.jsx         ✅ KPI cards with trends
-│   │   ├── TrendChart.jsx      ✅ Line charts with anomalies
-│   │   └── AlertCenter.jsx     ✅ Notification center
-│   ├── dss/
-│   │   └── ScenarioSimulator.jsx ✅ What-if simulations
-│   └── shared/
-│       ├── PrivateRoute.jsx    ✅ Protected routes
-│       ├── LoadingSpinner.jsx  ✅ Loading indicator
-│       ├── ErrorBoundary.jsx   ✅ Error handling
-│       └── StatusBadge.jsx     ✅ Status indicators
-└── services/
-    └── api.js                  ✅ Axios configured
-```
-
-### File Status Legend
-
-| Icon | Meaning |
-|------|---------|
-| ✅ | File created and configured |
-| ⭐ | Core DSS component |
-| 📁 | Directory |
 
 ---
 
 ## 👥 Team & Responsibilities
 
-| Role | Developer | Responsibilities | Files to Work On |
-|------|-----------|-----------------|------------------|
-| **Lead Architect** | You | Project structure, integration, deployment | `docker-compose.yml`, `backend/app/main.py`, `frontend/src/App.js`, integration |
-| **DSS Engineer** | Developer 1 | Knowledge Engine, risk scoring, what-if simulator | `backend/app/services/dss/*.py`, `backend/app/api/dss.py`, `frontend/src/components/dss/` |
-| **Frontend UI** | Developer 2 | Dashboard, visualizations, mode adaptation | `frontend/src/pages/Dashboard.jsx`, `frontend/src/components/dashboard/*.jsx`, Tailwind styling |
-| **Backend API** | Developer 3 | Auth, transactions, forecasts, anomalies | `backend/app/api/*.py`, `backend/app/services/scanner.py`, `backend/app/services/forecast.py` |
-| **Database & Models** | Developer 4 | DB schema, models, migrations, audit logs | `backend/app/models/*.py`, `backend/migrations/`, `backend/app/database.py` |
+| Role | Developer | Focus Area | Files to Work On | Key Deliverables |
+|------|-----------|------------|-----------------|------------------|
+| **Lead Architect** | Daniel (You) | DSS, PDF scanning, UI integration, Project structure | `backend/app/services/dss/`, `backend/app/api/dss.py`, `backend/app/services/scanner.py`, `frontend/src/components/dss/`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/components/invoices/` | Risk engine, KPI engine, what-if simulator, PDF scanner, personalized recommendations, goal-setting UI |
+| **AI/ML Engineer** | Josiah | Expense prediction, cash flow forecasting | `backend/app/services/forecast.py`, `backend/app/models/forecast.py`, `backend/app/api/forecasts.py`, `frontend/src/components/dashboard/TrendChart.jsx`, `frontend/src/services/forecastService.js` | ARIMA/LSTM models, cash flow projections, savings predictions, forecast accuracy metrics |
+| **NLP & Chatbot** | Geoffrey | Chatbot, transaction classification, budget automation | `backend/app/services/chatbot.py`, `backend/app/services/dss/scoring_engine.py`, `backend/app/api/chatbot.py`, `frontend/src/components/chat/Chatbot.jsx`, `frontend/src/services/chatService.js` | Intent-based chatbot, natural language queries, smart transaction categorization, automated budget planning |
+| **Security & Systems** | Arnold | Anomaly detection, fraud, multi-account aggregation | `backend/app/services/anomaly.py`, `backend/app/models/anomaly.py`, `backend/app/api/anomalies.py`, `backend/app/middleware/`, `frontend/src/components/dashboard/AnomalyTable.jsx` | Isolation Forest anomaly detection, fraud alerts, multi-account security, audit logging |
 
-### Integration Points
+### Integration Points Map
 
-```yaml
-# Where teams intersect:
-DSS ↔ API:      DSS endpoints in dss.py called by frontend services
-Frontend ↔ DSS: dssService.js calls /api/dss/* endpoints
-Models ↔ DSS:   DSS services use SQLAlchemy models for data access
 ```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         PROPHETLEDGER SYSTEM                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐         │
+│  │   Josiah     │────▶│   Forecast   │────▶│   Trend      │         │
+│  │   (AI/ML)    │     │   Engine     │     │   Charts     │         │
+│  └──────────────┘     └──────────────┘     └──────────────┘         │
+│         │                                       ▲                    │
+│         │                                       │                    │
+│         ▼                                       │                    │
+│  ┌──────────────┐     ┌──────────────┐          │                    │
+│  │   Daniel     │────▶│     DSS      │──────────┘                    │
+│  │   (DSS/UI)   │     │   Engine     │                               │
+│  └──────────────┘     └──────────────┘                               │
+│         │                    │                                       │
+│         │                    │                                       │
+│         ▼                    ▼                                       │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐         │
+│  │   Geoffrey   │────▶│   Chatbot    │────▶│  Transaction │         │
+│  │   (NLP)      │     │   Service    │     │  Classifier  │         │
+│  └──────────────┘     └──────────────┘     └──────────────┘         │
+│         │                                      │                     │
+│         │                                      │                     │
+│         ▼                                      ▼                     │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐         │
+│  │   Arnold     │────▶│   Anomaly    │────▶│   Security   │         │
+│  │   (Security) │     │   Detector   │     │   Middleware │         │
+│  └──────────────┘     └──────────────┘     └──────────────┘         │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### How Teams Integrate
+
+| From | To | Integration Method |
+|------|-----|-------------------|
+| Josiah (Forecast) | Daniel (DSS) | `forecast.py` exports prediction data → DSS uses for risk scoring |
+| Geoffrey (Chatbot) | Daniel (DSS) | Chatbot calls DSS endpoints for financial insights |
+| Arnold (Anomaly) | Daniel (DSS) | Anomaly detection feeds into DSS alert engine |
+| All | Frontend | Services expose APIs consumed by React components |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Development Setup
 
 ### Prerequisites
 
 ```bash
-# Required
-Python 3.11+
+# Required versions
+Python 3.11+ (3.13 recommended)
 Node.js 18+
-PostgreSQL 15+ (or Docker)
-Docker & Docker Compose (optional but recommended)
+PostgreSQL 15+ (or SQLite for development)
 Git
 ```
 
-### Option 1: Full Docker Setup (Recommended)
+### Step 1: Clone Repository
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/prophetledger.git
-cd prophetledger
-
-# 2. Build and run all services
-docker-compose up --build
-
-# 3. Access the application
-# Frontend:    http://localhost:3000
-# Backend API: http://localhost:8000
-# Swagger UI:  http://localhost:8000/docs
-# Database:    localhost:5432 (user: postgres, password: secret)
+git clone https://github.com/WekesaDanielJkuat/ProphetLedger.git
+cd ProphetLedger
+git checkout dev
 ```
 
-### Option 2: Local Development
+### Step 2: Backend Setup
 
 ```bash
-# Terminal 1: Database (using Docker for DB only)
-docker run --name prophetledger-db \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=prophetledger \
-  -p 5432:5432 -d postgres:15
-
-# Terminal 2: Backend
 cd backend
+
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
 
-# Terminal 3: Frontend
-cd frontend
-npm install
-npm start
+# Activate (Windows)
+venv\Scripts\activate
+
+# Activate (Mac/Linux)
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env file
+echo DATABASE_URL=sqlite:///./prophetledger.db > .env
+echo SECRET_KEY=your-secret-key-here >> .env
+echo ALGORITHM=HS256 >> .env
+echo ACCESS_TOKEN_EXPIRE_MINUTES=30 >> .env
 ```
 
-### Initial Setup (First Run Only)
+### Step 3: Frontend Setup
 
 ```bash
-# Create database tables
-cd backend
+cd ../frontend
+
+# Install dependencies
+npm install
+
+# Create .env file
+echo REACT_APP_API_URL=http://localhost:8000 > .env
+```
+
+### Step 4: Initialize Database
+
+```bash
+cd ../backend
 python -c "
 from app.database import engine, Base
 from app.models import user, transaction, invoice, forecast, anomaly, audit_log
 Base.metadata.create_all(bind=engine)
-print('✅ Tables created!')
+print('✅ Database tables created!')
 "
-
-# Seed test data (optional)
-python scripts/seed_data.py
 ```
+
+### Step 5: Start Development Servers
+
+**Terminal 1 - Backend:**
+```bash
+cd backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --port 8000
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd frontend
+npm start
+```
+
+### Step 6: Verify Installation
+
+| Service | URL | Expected |
+|---------|-----|----------|
+| Backend API | http://localhost:8000 | `{"message":"ProphetLedger API is running!"}` |
+| API Docs | http://localhost:8000/docs | Swagger UI |
+| Frontend | http://localhost:3000 | Login page |
+| Health Check | http://localhost:8000/health | `{"status":"ok"}` |
 
 ---
 
 ## 📝 Development Guide
 
-### Environment Variables
+### Each Developer's First Steps
 
-**Backend (.env in `/backend`)**
-```env
-DATABASE_URL=postgresql://postgres:secret@localhost:5432/prophetledger
-SECRET_KEY=your-super-secret-key-change-this
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-ENVIRONMENT=development
+#### 🧠 Daniel (DSS & UI)
+```bash
+# Create your files
+cd backend/app/services
+mkdir dss
+cd dss
+# Create: risk_engine.py, kpi_engine.py, alert_engine.py, what_if_evaluator.py
+
+cd ../../../frontend/src/components
+mkdir dss
+cd dss
+# Create: ScenarioSimulator.jsx, ScoreMeter.jsx
 ```
 
-**Frontend (.env in `/frontend`)**
-```env
-REACT_APP_API_URL=http://localhost:8000
-REACT_APP_WS_URL=ws://localhost:8000  # For real-time alerts
+#### 👤 Josiah (AI/ML - Forecasting)
+```bash
+# Create your files
+cd backend/app/services
+touch forecast.py
+
+cd ../models
+touch forecast.py
+
+cd ../api
+touch forecasts.py
+
+cd ../../../frontend/src/services
+touch forecastService.js
 ```
 
-### Running Tests
+#### 💬 Geoffrey (NLP & Chatbot)
+```bash
+# Create your files
+cd backend/app/services
+touch chatbot.py
+
+cd ../api
+touch chatbot.py
+
+cd ../../../frontend/src/components
+mkdir chat
+cd chat
+touch Chatbot.jsx
+
+cd ../../services
+touch chatService.js
+```
+
+#### 🔒 Arnold (Security & Anomaly)
+```bash
+# Create your files
+cd backend/app/services
+touch anomaly.py
+
+cd ../models
+touch anomaly.py
+
+cd ../api
+touch anomalies.py
+
+cd ../middleware
+# Already has auth.py - add audit.py
+
+cd ../../../frontend/src/services
+touch anomalyService.js
+```
+
+### Running Individual Components
 
 ```bash
-# Backend tests
+# Run only backend (for API development)
 cd backend
-pytest tests/ -v --cov=app
+venv\Scripts\activate
+uvicorn app.main:app --reload --port 8000
 
-# Frontend tests
+# Run only frontend (for UI development with mock data)
 cd frontend
-npm test
-```
+npm start
 
-### Code Style
-
-```bash
-# Backend (Black formatter)
-pip install black
-black backend/app
-
-# Frontend (Prettier)
-npm run format
-```
-
-### Common Commands
-
-```bash
-# Database migrations
-cd backend
-alembic revision --autogenerate -m "description"
-alembic upgrade head
-
-# Rebuild Docker containers
-docker-compose down
-docker-compose build --no-cache
-docker-compose up
-
-# View logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
-
-# Enter backend container
-docker-compose exec backend bash
-
-# Reset database
-docker-compose down -v
-docker-compose up
+# Run tests for your component
+pytest tests/test_forecast.py  # Josiah
+pytest tests/test_chatbot.py   # Geoffrey
+pytest tests/test_anomaly.py   # Arnold
+pytest tests/test_dss.py       # Daniel
 ```
 
 ---
@@ -454,136 +448,74 @@ docker-compose up
 
 Once running, visit **http://localhost:8000/docs** for interactive Swagger documentation.
 
-### Key DSS Endpoints
+### API Endpoints by Owner
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/dss/risk/score` | Get comprehensive risk score |
-| GET | `/api/dss/risk/heatmap` | Category-based risk heatmap |
-| GET | `/api/dss/kpis` | All financial KPIs |
-| POST | `/api/dss/what-if/evaluate` | Run scenario simulation |
-| GET | `/api/dss/alerts` | Get active alerts |
-| POST | `/api/dss/transactions/classify` | Categorize transaction |
-
-### Example API Call
-
-```bash
-# Get risk score
-curl -X GET "http://localhost:8000/api/dss/risk/score?user_id=1" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-
-# Run what-if simulation
-curl -X POST "http://localhost:8000/api/dss/what-if/evaluate" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "user_id": 1,
-    "scenario": {
-      "type": "revenue_increase",
-      "parameters": {"percentage": 20, "timeframe": 12}
-    }
-  }'
-```
+| Owner | Endpoints |
+|-------|-----------|
+| Daniel | `/api/dss/*`, `/api/invoices/*` |
+| Josiah | `/api/forecasts/*` |
+| Geoffrey | `/api/chatbot/*`, `/api/transactions/classify` |
+| Arnold | `/api/anomalies/*`, `/api/auth/*` (security) |
 
 ---
 
-## 🧪 Testing the Application
-
-### Login Credentials (After Seeding)
-
-```
-Email: admin@prophetledger.com
-Password: Admin123!
-
-# Or register a new user at /register
-```
-
-### Test Flow
-
-1. **Register** a new account at `http://localhost:3000/register`
-2. **Select Mode** (Personal/Small Business/Enterprise)
-3. **Upload a PDF invoice** using the Invoices page
-4. **View Dashboard** with adaptive UI based on mode
-5. **Run What-If simulations** in the DSS panel
-6. **Ask the Chatbot** questions like "How much did I spend last month?"
-
----
-
-## 🚢 Deployment
-
-### Production Build
+## 🧪 Testing
 
 ```bash
-# Backend
+# Run all tests
 cd backend
-docker build -t prophetledger-backend:latest .
+pytest tests/ -v
 
-# Frontend
+# Run specific test suite
+pytest tests/test_forecast.py -v  # Josiah
+pytest tests/test_chatbot.py -v   # Geoffrey
+pytest tests/test_anomaly.py -v   # Arnold
+pytest tests/test_dss.py -v       # Daniel
+
+# Frontend tests
 cd frontend
-npm run build
-docker build -t prophetledger-frontend:latest .
+npm test
 ```
-
-### Deploy to Cloud (Example: AWS ECS)
-
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-services:
-  db:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: prophetledger
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  backend:
-    image: prophetledger-backend:latest
-    environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/prophetledger
-      SECRET_KEY: ${SECRET_KEY}
-    depends_on:
-      - db
-
-  frontend:
-    image: prophetledger-frontend:latest
-    ports:
-      - "80:3000"
-```
-
-### Environment Checklist
-
-- [ ] Change `SECRET_KEY` to random 32+ character string
-- [ ] Set `ENVIRONMENT=production`
-- [ ] Enable HTTPS (use Let's Encrypt or cloud LB)
-- [ ] Set up database backups
-- [ ] Configure monitoring (Sentry, Prometheus)
-- [ ] Set up rate limiting
 
 ---
 
-## 🤝 Contributing
+## 🔀 Git Workflow
 
-### Git Workflow
+### Branch Strategy
+
+```
+main                    # Production (stable)
+  └── dev               # Development integration
+       ├── feature/dss-daniel      # Daniel's DSS features
+       ├── feature/forecast-josiah # Josiah's forecasting
+       ├── feature/chatbot-geoffrey # Geoffrey's chatbot
+       └── feature/security-arnold # Arnold's security
+```
+
+### Daily Workflow
 
 ```bash
-# 1. Create feature branch
-git checkout -b feature/your-feature-name
+# 1. Always start from updated dev
+git checkout dev
+git pull origin dev
 
-# 2. Make changes and commit
+# 2. Create your feature branch
+git checkout -b feature/your-name-feature-name
+
+# 3. Make changes and commit frequently
 git add .
 git commit -m "feat: add risk scoring engine"
 
-# 3. Push and create PR
-git push origin feature/your-feature-name
+# 4. Push your branch
+git push origin feature/your-name-feature-name
+
+# 5. Create Pull Request on GitHub to merge into dev
 ```
 
 ### Commit Convention
 
 ```
-feat: new feature
+feat: new feature (Daniel: DSS, Josiah: forecast, Geoffrey: chatbot, Arnold: security)
 fix: bug fix
 docs: documentation
 style: formatting
@@ -594,11 +526,33 @@ chore: maintenance
 
 ### Pull Request Process
 
-1. Update relevant documentation
-2. Add tests for new features
-3. Ensure all tests pass
-4. Get review from at least 2 team members
-5. Merge to `develop` branch
+1. Push your feature branch to GitHub
+2. Create PR from `feature/*` → `dev`
+3. Request review from Daniel (Lead Architect)
+4. All tests must pass
+5. Get approval from at least 1 other team member
+6. Merge into `dev`
+
+---
+
+## 🤝 Contributing
+
+### Code Review Checklist
+
+- [ ] Code follows project structure
+- [ ] Tests added for new features
+- [ ] API endpoints documented
+- [ ] No console errors or warnings
+- [ ] Works with both SQLite and PostgreSQL
+
+### Need Help?
+
+| Issue | Contact |
+|-------|---------|
+| Project structure, integration | Daniel |
+| Forecasting, ML models | Josiah |
+| Chatbot, NLP, classification | Geoffrey |
+| Security, anomalies, auth | Arnold |
 
 ---
 
@@ -608,23 +562,15 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
-
-- Built with [FastAPI](https://fastapi.tiangolo.com/) and [React](https://react.dev/)
-- Icons by [Lucide](https://lucide.dev/)
-- Charts by [Recharts](https://recharts.org/)
-
----
-
 <div align="center">
   
   **Made with 🔮 by the ProphetLedger Team**
   
-  [Report Bug](https://github.com/your-org/prophetledger/issues) · 
-  [Request Feature](https://github.com/your-org/prophetledger/issues) · 
-  [Documentation](https://docs.prophetledger.com)
+  | Daniel (Lead/DSS) | Josiah (AI/ML) | Geoffrey (NLP) | Arnold (Security) |
+  |------------------|----------------|----------------|-------------------|
+  
+  [Report Bug](https://github.com/WekesaDanielJkuat/ProphetLedger/issues) · 
+  [Request Feature](https://github.com/WekesaDanielJkuat/ProphetLedger/issues) · 
+  [Dev Branch](https://github.com/WekesaDanielJkuat/ProphetLedger/tree/dev)
   
 </div>
-
-
-
