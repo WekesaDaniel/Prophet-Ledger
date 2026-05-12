@@ -1,36 +1,19 @@
-﻿# Python
+﻿# Python cache
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.so
 .Python
-env/
+.env
 venv/
 ENV/
-env.bak/
-venv.bak/
+env/
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
-
-# Environment
-.env
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
+prophetledger.db
 
 # Node
 node_modules/
@@ -43,9 +26,20 @@ dist/
 build/
 *.min.js
 
-# Coverage
-coverage/
-.nyc_output/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# React
-*.local
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
