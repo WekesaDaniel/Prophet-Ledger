@@ -1,16 +1,27 @@
-﻿import axios from 'axios';
+﻿// frontend/src/services/api.js
+import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// Dynamic API URL based on environment
+const getApiUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    // Production URL (Vercel deployment)
+    return 'https://prophetledger.vercel.app/api';
+  }
+  // Development URL (local)
+  return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+};
+
+const API_URL = getApiUrl();
 
 const api = axios.create({
-  baseURL: `${API_URL}`,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
   timeout: 30000,
 });
 
-// Request interceptor
+// Rest of your api.js remains the same...
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -20,24 +31,19 @@ api.interceptors.request.use(
     console.log(`📤 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
     return config;
   },
-  (error) => {
-    console.error('Request error:', error);
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor
 api.interceptors.response.use(
   (response) => {
-    console.log(`📥 Response:`, response.status, response.data);
+    console.log(`📥 Response:`, response.status);
     return response;
   },
   (error) => {
     console.error('Response error:', error.response?.status, error.response?.data);
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      delete api.defaults.headers.common['Authorization'];
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+      if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
     }
