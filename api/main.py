@@ -5,6 +5,13 @@ from typing import Optional, List
 import os
 import numpy as np
 from datetime import datetime, timedelta
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def home():
+    return {"message": "API working"}
 
 app = FastAPI(title="ProphetLedger API", version="1.0.0")
 
