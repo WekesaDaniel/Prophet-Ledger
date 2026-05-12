@@ -1,12 +1,20 @@
 ﻿{
-  "rewrites": [
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/build",
+  "installCommand": "npm install",
+  "functions": {
+    "backend/app/**/*.py": {
+      "runtime": "python3.11"
+    }
+  },
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/backend/app/main.py"
+      "src": "/api/(.*)",
+      "dest": "backend/app/main.py"
     },
     {
-      "source": "/(.*)",
-      "destination": "/frontend/build/index.html"
+      "src": "/(.*)",
+      "dest": "frontend/build/index.html"
     }
   ]
 }
