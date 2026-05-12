@@ -1,58 +1,233 @@
-﻿from fastapi import FastAPI
+﻿from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
-from app.api import auth, users
-from app.api import forecasts, chatbot, anomalies
-from app.middleware.audit import audit_middleware
-from fastapi import Request
+from pydantic import BaseModel
+from typing import Optional, List
+import os
+from supabase import create_client, Client
+from groq import Groq
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Initialize clients
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+groq_api_key = os.environ.get("GROQ_API_KEY")
 
-app = FastAPI(
-    title="ProphetLedger API",
-    description="AI-Driven Financial Intelligence Platform",
-    version="1.0.0"
-)
+supabase: Client = create_client(supabase_url, supabase_key) if supabase_url and supabase_key else None
+groq_client = Groq(api_key=groq_api_key) if groq_api_key else None
 
-# Add audit middleware
-@app.middleware("http")
-async def add_audit_middleware(request: Request, call_next):
-    return await audit_middleware(request, call_next)
+app = FastAPI(title="ProphetLedger API", version="1.0.0")
 
-# CORS middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(auth.router)
-app.include_router(users.router)
-app.include_router(forecasts.router)
-app.include_router(chatbot.router)
-app.include_router(anomalies.router)
-
+# ============================================
+# HEALTH CHECK
+# ============================================
 @app.get("/")
 def root():
-    return {"message": "ProphetLedger API is running!", "version": "1.0.0"}
+    return {"message": "ProphetLedger API is running on Vercel!", "status": "healthy"}
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+@app.get("/api/health")
+def health():
+    return {"status": "healthy", "services": {
+        "supabase": supabase is not None,
+        "groq": groq_client is not None
+    }}
 
-@app.get("/api/status")
-def api_status():
-    return {
-        "status": "operational",
-        "services": {
-            "auth": "online",
-            "forecasts": "online",
-            "chatbot": "online",
-            "anomalies": "online",
-            "dss": "online"
+# ============================================
+# AUTH ENDPOINTS (Supabase)
+# ============================================
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    email: str
+    full_name: str
+    password: str
+
+@app.post("/api/auth/register")
+async def register(request: RegisterRequest):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        response = supabase.auth.sign_up({
+            "email": request.email,
+            "password": request.password,
+            "options": {
+                "data": {"full_name": request.full_name}
+            }
+        })
+        return {"message": "User created successfully", "user_id": response.user.id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": request.email,
+            "password": request.password
+        })
+        return {
+            "access_token": response.session.access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": response.user.id,
+                "email": response.user.email,
+                "full_name": response.user.user_metadata.get("full_name", ""),
+                "role": "user",
+                "mode_preference": "personal"
+            }
         }
-    }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.get("/api/auth/me")
+async def get_current_user(auth_header: str = Depends(lambda: None)):
+    # Simplified - in production, verify JWT
+    return {"id": "123", "email": "user@example.com", "full_name": "Test User"}
+
+# ============================================
+# CHATBOT ENDPOINT (Groq API)
+# ============================================
+class ChatRequest(BaseModel):
+    query: str
+    user_id: Optional[str] = None
+
+@app.post("/api/chatbot/query")
+async def chat(request: ChatRequest):
+    if not groq_client:
+        # Fallback to mock responses if Groq not configured
+        return mock_chat_response(request.query)
+    
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful financial assistant for ProphetLedger. Help users with their financial questions about spending, balance, forecasts, and anomalies. Keep responses concise and actionable."
+                },
+                {
+                    "role": "user",
+                    "content": request.query
+                }
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        return {
+            "query": request.query,
+            "response": completion.choices[0].message.content,
+            "intent": "llm",
+            "confidence": 0.95
+        }
+    except Exception as e:
+        return mock_chat_response(request.query)
+
+def mock_chat_response(query):
+    lower_query = query.lower()
+    if "spent" in lower_query or "spend" in lower_query:
+        return {"query": query, "response": "You've spent $3,247 in the last 30 days. Your top category is Dining at $780.", "intent": "spending", "confidence": 0.8}
+    elif "balance" in lower_query:
+        return {"query": query, "response": "Your current balance is $12,845.", "intent": "balance", "confidence": 0.9}
+    elif "forecast" in lower_query or "predict" in lower_query:
+        return {"query": query, "response": "Based on your patterns, next month you'll spend around $3,200.", "intent": "forecast", "confidence": 0.85}
+    else:
+        return {"query": query, "response": "I can help with spending, balances, forecasts, and anomalies. Try asking 'How much did I spend on food?'", "intent": "unknown", "confidence": 0.5}
+
+# ============================================
+# TRANSACTIONS ENDPOINTS
+# ============================================
+@app.get("/api/transactions")
+async def get_transactions(user_id: str = None, limit: int = 50):
+    # 🔴 HARDCODED - Replace with Supabase query
+    mock_transactions = [
+        {"id": 1, "date": "2024-05-15", "description": "Starbucks", "amount": 5.75, "category": "Dining", "type": "expense"},
+        {"id": 2, "date": "2024-05-14", "description": "Salary", "amount": 5000, "category": "Income", "type": "income"},
+        {"id": 3, "date": "2024-05-13", "description": "Amazon", "amount": 124.99, "category": "Shopping", "type": "expense"},
+    ]
+    return mock_transactions[:limit]
+
+@app.post("/api/transactions")
+async def create_transaction(transaction: dict):
+    # 🔴 HARDCODED - Replace with Supabase insert
+    return {"message": "Transaction created", "id": 999}
+
+# ============================================
+# FORECAST ENDPOINTS
+# ============================================
+@app.get("/api/forecasts/trend/{metric}")
+async def get_trend(metric: str, days: int = 90):
+    # 🔴 HARDCODED - Replace with model predictions
+    import numpy as np
+    from datetime import datetime, timedelta
+    
+    dates = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days, 0, -1)]
+    base = 50000 if metric == "cashflow" else 32000
+    values = np.cumsum(np.random.normal(100, 500, days)) + base
+    
+    history = [{"date": dates[i], "actual": round(float(values[i]), 2)} for i in range(len(dates))]
+    
+    # Add forecast
+    last = values[-1]
+    forecast_dates = [(datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 31)]
+    forecast_values = np.linspace(last, last * 1.05, 30)
+    
+    for i in range(30):
+        history.append({"date": forecast_dates[i], "actual": None, "forecast": round(float(forecast_values[i]), 2)})
+    
+    return {"metric": metric, "history": history, "anomalies": []}
+
+# ============================================
+# ANOMALY DETECTION
+# ============================================
+@app.get("/api/anomalies")
+async def get_anomalies(limit: int = 10):
+    # 🔴 HARDCODED - Replace with Supabase query
+    return [
+        {"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"},
+        {"id": 2, "date": "2024-05-10", "description": "Uber Rides", "amount": 187.50, "category": "Transport", "anomaly_score": 78, "status": "pending"},
+    ][:limit]
+
+# ============================================
+# KPI ENDPOINTS
+# ============================================
+@app.get("/api/dss/kpis")
+async def get_kpis(mode: str = "personal"):
+    mock_kpis = [
+        {"id": 1, "title": "Financial Health", "value": 78, "change": 5.2, "trend": "up", "benchmark": 75, "status": "good", "recommendation": "Keep saving!"},
+        {"id": 2, "title": "Cash Runway", "value": 12, "change": -2, "trend": "down", "benchmark": 12, "status": "warning", "recommendation": "Watch spending"},
+        {"id": 3, "title": "Burn Rate", "value": 15000, "change": 8, "trend": "up", "benchmark": 10000, "status": "critical", "recommendation": "Cut expenses"},
+        {"id": 4, "title": "Savings Rate", "value": 18, "change": 3, "trend": "up", "benchmark": 20, "status": "warning", "recommendation": "Save more"},
+    ]
+    return mock_kpis
+
+@app.get("/api/dss/risk/score")
+async def get_risk_score():
+    return {"risk_score": 68, "risk_level": "medium", "active_anomalies": 2, "recommendation": "Review pending anomalies"}
+
+# ============================================
+# INVOICE ENDPOINTS
+# ============================================
+@app.post("/api/invoices/scan")
+async def scan_invoice():
+    return {"message": "Invoice scanned", "vendor": "Sample Vendor", "total": 125.50, "date": "2024-05-15"}
+
+@app.get("/api/invoices")
+async def get_invoices():
+    return [
+        {"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"},
+        {"id": 2, "vendor": "Starbucks", "amount": 45.75, "date": "2024-05-14", "status": "pending"},
+    ]
