@@ -1,45 +1,52 @@
-﻿# Python cache
+﻿# Python cache files - NEVER COMMIT THESE!
 __pycache__/
 *.py[cod]
-*.class
+*$py.class
 *.so
 .Python
-.env
-venv/
-ENV/
-env/
 
-# Database
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Database files
 *.db
 *.sqlite
 *.sqlite3
 prophetledger.db
 
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Environment variables
+.env
+.env.local
+.env.*.local
 
-# Build
+# Node modules
+node_modules/
+
+# Build outputs
 dist/
 build/
 *.min.js
 
-# IDE
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment
-.env
-.env.local
+# Coverage
+coverage/
+.nyc_output/
