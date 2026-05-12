@@ -1,11 +1,10 @@
-﻿// frontend/src/services/api.js
-import axios from 'axios';
+﻿import axios from 'axios';
 
 // Dynamic API URL based on environment
 const getApiUrl = () => {
   if (process.env.NODE_ENV === 'production') {
-    // Production URL (Vercel deployment)
-    return 'https://prophetledger.vercel.app/api';
+    // In production, API is at the same domain (Vercel handles routing)
+    return '/api';
   }
   // Development URL (local)
   return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
@@ -21,7 +20,7 @@ const api = axios.create({
   timeout: 30000,
 });
 
-// Rest of your api.js remains the same...
+// Request interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -34,6 +33,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
     console.log(`📥 Response:`, response.status);
