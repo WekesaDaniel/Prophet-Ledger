@@ -1,18 +1,11 @@
-﻿from fastapi import FastAPI, HTTPException
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-import os
 import numpy as np
 from datetime import datetime, timedelta
-from fastapi import FastAPI
 
-app = FastAPI()
-
-@app.get("/")
-def home():
-    return {"message": "API working"}
-
+# Create FastAPI instance (must be named 'app' for Vercel)
 app = FastAPI(title="ProphetLedger API", version="1.0.0")
 
 # CORS for frontend
@@ -30,7 +23,7 @@ def root():
 
 @app.get("/api/health")
 def health():
-    return {"status": "healthy", "services": {"vercel": "ok"}}
+    return {"status": "healthy"}
 
 # Auth endpoints
 class LoginRequest(BaseModel):
@@ -77,7 +70,7 @@ async def chat(request: ChatRequest):
     elif "balance" in query_lower:
         return {"query": request.query, "response": "Your current balance is $12,845.", "intent": "balance"}
     else:
-        return {"query": request.query, "response": "I can help with spending, balances, and forecasts. Try asking 'How much did I spend?'", "intent": "unknown"}
+        return {"query": request.query, "response": "I can help with spending, balances, and forecasts.", "intent": "unknown"}
 
 # Transactions
 @app.get("/api/transactions")
