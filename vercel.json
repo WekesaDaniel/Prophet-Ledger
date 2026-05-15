@@ -1,15 +1,19 @@
-﻿{
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/build",
-  "installCommand": "npm install",
-  "rewrites": [
+{
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.py"
     },
     {
-      "source": "/(.*)",
-      "destination": "/frontend/build/index.html"
+      "src": "/(.*)",
+      "dest": "/frontend/build/index.html"
     }
   ]
 }
