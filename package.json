@@ -1,16 +1,8 @@
 ﻿{
   "name": "prophetledger",
   "version": "1.0.0",
+  "private": true,
   "scripts": {
-    "dev:frontend": "cd frontend && npm start",
-    "dev:backend": "cd backend && uvicorn app.main:app --reload --port 8000",
-    "build:frontend": "cd frontend && npm run build",
-    "deploy": "vercel --prod",
-    "deploy:staging": "vercel",
-    "supabase:start": "supabase start",
-    "supabase:stop": "supabase stop"
-  },
-  "devDependencies": {
-    "vercel": "^34.0.0"
+    "build": "cd frontend && npm install && npm run build"
   }
 }

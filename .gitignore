@@ -57,3 +57,5 @@ start-all.ps1
 start-frontend.ps1
 start-backend.ps1
 stop-all.ps1
+.vercel
+.env*.local
