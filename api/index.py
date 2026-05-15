@@ -1,7 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import numpy as np
 from datetime import datetime, timedelta
 
@@ -65,12 +65,14 @@ class ChatRequest(BaseModel):
 @app.post("/api/chatbot/query")
 async def chat(request: ChatRequest):
     query_lower = request.query.lower()
-    if "spent" in query_lower:
+    if "spent" in query_lower or "spend" in query_lower:
         return {"query": request.query, "response": "You've spent $3,247 in the last 30 days.", "intent": "spending"}
     elif "balance" in query_lower:
         return {"query": request.query, "response": "Your current balance is $12,845.", "intent": "balance"}
+    elif "forecast" in query_lower or "predict" in query_lower:
+        return {"query": request.query, "response": "Based on your patterns, next month you'll spend around $3,200.", "intent": "forecast"}
     else:
-        return {"query": request.query, "response": "I can help with spending, balances, and forecasts.", "intent": "unknown"}
+        return {"query": request.query, "response": "I can help with spending, balances, and forecasts. Try asking 'How much did I spend?'", "intent": "unknown"}
 
 # Transactions
 @app.get("/api/transactions")
@@ -78,6 +80,7 @@ async def get_transactions(limit: int = 50):
     return [
         {"id": 1, "date": "2024-05-15", "description": "Starbucks", "amount": 5.75, "category": "Dining", "type": "expense"},
         {"id": 2, "date": "2024-05-14", "description": "Salary", "amount": 5000, "category": "Income", "type": "income"},
+        {"id": 3, "date": "2024-05-13", "description": "Amazon", "amount": 124.99, "category": "Shopping", "type": "expense"},
     ][:limit]
 
 # Forecasts
@@ -103,6 +106,7 @@ async def get_trend(metric: str, days: int = 90):
 async def get_anomalies(limit: int = 10):
     return [
         {"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"},
+        {"id": 2, "date": "2024-05-10", "description": "Uber Rides", "amount": 187.50, "category": "Transport", "anomaly_score": 78, "status": "pending"},
     ][:limit]
 
 # DSS / KPI
@@ -111,6 +115,8 @@ async def get_kpis(mode: str = "personal"):
     return [
         {"id": 1, "title": "Financial Health", "value": 78, "change": 5.2, "trend": "up", "benchmark": 75, "status": "good", "recommendation": "Keep saving!"},
         {"id": 2, "title": "Cash Runway", "value": 12, "change": -2, "trend": "down", "benchmark": 12, "status": "warning", "recommendation": "Watch spending"},
+        {"id": 3, "title": "Burn Rate", "value": 15000, "change": 8, "trend": "up", "benchmark": 10000, "status": "critical", "recommendation": "Reduce expenses"},
+        {"id": 4, "title": "Savings Rate", "value": 18, "change": 3, "trend": "up", "benchmark": 20, "status": "warning", "recommendation": "Increase savings"},
     ]
 
 @app.get("/api/dss/risk/score")
@@ -126,4 +132,5 @@ async def scan_invoice():
 async def get_invoices():
     return [
         {"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"},
+        {"id": 2, "vendor": "Starbucks", "amount": 45.75, "date": "2024-05-14", "status": "pending"},
     ]
