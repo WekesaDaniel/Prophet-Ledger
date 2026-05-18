@@ -1,23 +1,34 @@
 ﻿import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    
+    if (!email || !password) {
+      setError('Please enter both email and password');
+      return;
+    }
+    
     setLoading(true);
     const success = await login(email, password);
     setLoading(false);
+    
     if (success) {
       navigate('/mode-selector');
+    } else {
+      setError('Invalid email or password. Please try again.');
     }
   };
 
@@ -31,6 +42,13 @@ const Login = () => {
           </h1>
           <p className="text-gray-500 text-sm mt-2">Sign in to your account</p>
         </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
+            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5" />
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

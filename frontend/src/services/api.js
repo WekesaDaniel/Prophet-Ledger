@@ -3,11 +3,11 @@
 // Dynamic API URL based on environment
 const getApiUrl = () => {
   if (process.env.NODE_ENV === 'production') {
-    // In production, API is at the same domain (Vercel handles routing)
-    return '/api';
+    // Production backend URL (no /api suffix, it's already in routes)
+    return 'https://prophetledger-api.vercel.app';
   }
   // Development URL (local)
-  return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+  return process.env.REACT_APP_API_URL || 'http://localhost:8000';
 };
 
 const API_URL = getApiUrl();
@@ -36,14 +36,14 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
-    console.log(`📥 Response:`, response.status);
+    console.log(`📥 Response:`, response.status, response.data);
     return response;
   },
   (error) => {
     console.error('Response error:', error.response?.status, error.response?.data);
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      if (window.location.pathname !== '/login') {
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
         window.location.href = '/login';
       }
     }
