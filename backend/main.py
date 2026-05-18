@@ -8,18 +8,24 @@ from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
 
-# Initialize clients with environment variables (Vercel will inject these)
+# ============================================
+# ENVIRONMENT VARIABLES (Vercel injects these)
+# ============================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Log which services are available (for debugging)
-print(f"Supabase configured: {SUPABASE_URL is not None}")
-print(f"Groq configured: {GROQ_API_KEY is not None}")
+# Debug logging (appears in Vercel logs)
+print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
+print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
 
+# Initialize clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+# ============================================
+# FASTAPI APP
+# ============================================
 app = FastAPI(title="ProphetLedger API", version="1.0.0")
 
 # CORS - Allow frontend domains
@@ -59,7 +65,7 @@ def health():
     }
 
 # ============================================
-# AUTH ENDPOINTS (Supabase)
+# AUTH MODELS
 # ============================================
 class LoginRequest(BaseModel):
     email: str
@@ -70,10 +76,13 @@ class RegisterRequest(BaseModel):
     full_name: str
     password: str
 
+# ============================================
+# AUTH ENDPOINTS (Supabase)
+# ============================================
 @app.post("/api/auth/register")
 async def register(request: RegisterRequest):
     if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to environment variables.")
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     
     try:
         response = supabase.auth.sign_up({
@@ -83,9 +92,27 @@ async def register(request: RegisterRequest):
                 "data": {"full_name": request.full_name}
             }
         })
-        return {"message": "User created successfully", "user_id": response.user.id}
+        
+        # Check if email confirmation is required
+        if response.user and not response.user.confirmed_at:
+            return {
+                "success": True,
+                "message": "Registration successful! Please check your email to confirm your account.",
+                "user_id": response.user.id,
+                "requires_confirmation": True
+            }
+        
+        return {
+            "success": True,
+            "message": "User created successfully",
+            "user_id": response.user.id,
+            "requires_confirmation": False
+        }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_msg = str(e)
+        if "User already registered" in error_msg:
+            raise HTTPException(status_code=400, detail="Email already registered. Please login or reset password.")
+        raise HTTPException(status_code=400, detail=error_msg)
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
@@ -97,7 +124,16 @@ async def login(request: LoginRequest):
             "email": request.email,
             "password": request.password
         })
+        
+        # Check if email is confirmed
+        if response.user and not response.user.confirmed_at:
+            raise HTTPException(
+                status_code=401, 
+                detail="Please verify your email address before logging in. Check your inbox for the confirmation link."
+            )
+        
         return {
+            "success": True,
             "access_token": response.session.access_token,
             "token_type": "bearer",
             "user": {
@@ -105,14 +141,24 @@ async def login(request: LoginRequest):
                 "email": response.user.email,
                 "full_name": response.user.user_metadata.get("full_name", ""),
                 "role": "user",
-                "mode_preference": "personal"
+                "mode_preference": "personal",
+                "email_confirmed": response.user.confirmed_at is not None
             }
         }
     except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        error_msg = str(e)
+        if "Invalid login credentials" in error_msg:
+            raise HTTPException(
+                status_code=401, 
+                detail="Invalid email or password. If you just registered, please verify your email first."
+            )
+        raise HTTPException(status_code=401, detail=error_msg)
 
 @app.get("/api/auth/me")
 async def get_current_user(request: Request):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -124,7 +170,8 @@ async def get_current_user(request: Request):
             "id": user.user.id,
             "email": user.user.email,
             "full_name": user.user.user_metadata.get("full_name", ""),
-            "is_active": True
+            "is_active": True,
+            "email_confirmed": user.user.confirmed_at is not None
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid token")

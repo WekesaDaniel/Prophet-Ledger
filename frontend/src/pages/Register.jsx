@@ -14,7 +14,8 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -65,29 +66,41 @@ const Register = () => {
     
     setLoading(false);
     
-    if (result) {
-      setSuccess(true);
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
+    if (result.success) {
+      if (result.requires_confirmation) {
+        setNeedsVerification(true);
+        setRegisteredEmail(formData.email);
+      } else {
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+      }
     }
   };
 
-  if (success) {
+  // Email verification screen
+  if (needsVerification) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
           <div className="flex justify-center mb-4">
-            <CheckCircle className="w-16 h-16 text-green-500" />
+            <Mail className="w-16 h-16 text-blue-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Registration Successful!</h2>
-          <p className="text-gray-600 mb-4">Your account has been created.</p>
-          <p className="text-sm text-gray-500">Redirecting to login page...</p>
-          <div className="mt-4">
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-green-500 h-2 rounded-full animate-pulse w-full"></div>
-            </div>
-          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Verify Your Email</h2>
+          <p className="text-gray-600 mb-2">
+            We've sent a confirmation link to:
+          </p>
+          <p className="text-blue-600 font-medium mb-4">{registeredEmail}</p>
+          <p className="text-gray-500 text-sm mb-6">
+            Please check your inbox and click the verification link to activate your account.
+            After verification, you can log in.
+          </p>
+          <button
+            onClick={() => navigate('/login')}
+            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg hover:opacity-90"
+          >
+            Go to Login
+          </button>
         </div>
       </div>
     );
@@ -104,6 +117,14 @@ const Register = () => {
           </h1>
           <p className="text-gray-500 text-sm mt-2">Create your account</p>
         </div>
+
+        {/* Success message */}
+        {!needsVerification && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-2">
+            <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+            <p className="text-green-700 text-sm">Registration successful! Redirecting to login...</p>
+          </div>
+        )}
 
         {/* Error message */}
         {error && (

@@ -46,6 +46,10 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/api/auth/login', { email, password });
       console.log('Login response:', response.data);
       
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Login failed');
+      }
+      
       const { access_token, user: userData } = response.data;
       
       localStorage.setItem('token', access_token);
@@ -54,12 +58,12 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       
       toast.success('Login successful!');
-      return true;
+      return { success: true, user: userData };
     } catch (error) {
       const message = error.response?.data?.detail || 'Login failed. Please check your credentials.';
       toast.error(message);
       console.error('Login error:', error.response?.data);
-      return false;
+      return { success: false, message };
     }
   };
 
@@ -73,13 +77,27 @@ export const AuthProvider = ({ children }) => {
       });
       
       console.log('Registration response:', response.data);
+      
+      if (response.data.requires_confirmation) {
+        toast.success('Please check your email to verify your account!');
+        return { 
+          success: true, 
+          requires_confirmation: true,
+          message: response.data.message
+        };
+      }
+      
       toast.success('Registration successful! Please login.');
-      return true;
+      return { 
+        success: true, 
+        requires_confirmation: false,
+        message: response.data.message
+      };
     } catch (error) {
       const message = error.response?.data?.detail || 'Registration failed. Please try again.';
       toast.error(message);
       console.error('Registration error:', error.response?.data);
-      return false;
+      return { success: false, message };
     }
   };
 
@@ -92,7 +110,15 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, isAuthenticated: !!user, token }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      login, 
+      register, 
+      logout, 
+      isAuthenticated: !!user, 
+      token 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -22,13 +22,13 @@ const Login = () => {
     }
     
     setLoading(true);
-    const success = await login(email, password);
+    const result = await login(email, password);
     setLoading(false);
     
-    if (success) {
+    if (result.success) {
       navigate('/mode-selector');
     } else {
-      setError('Invalid email or password. Please try again.');
+      setError(result.message || 'Invalid email or password. Please try again.');
     }
   };
 
