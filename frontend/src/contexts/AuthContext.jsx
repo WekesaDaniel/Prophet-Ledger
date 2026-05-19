@@ -1,4 +1,5 @@
-﻿import React, { createContext, useState, useContext, useEffect } from 'react';
+﻿// frontend/src/contexts/AuthContext.jsx
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -46,10 +47,6 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/api/auth/login', { email, password });
       console.log('Login response:', response.data);
       
-      if (!response.data.success) {
-        throw new Error(response.data.message || 'Login failed');
-      }
-      
       const { access_token, user: userData } = response.data;
       
       localStorage.setItem('token', access_token);
@@ -61,9 +58,24 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user: userData };
     } catch (error) {
       const message = error.response?.data?.detail || 'Login failed. Please check your credentials.';
-      toast.error(message);
+      
+      // Check if the error is about email verification
+      const isVerificationError = message.toLowerCase().includes('verify') || 
+                                  message.toLowerCase().includes('confirmed') ||
+                                  message.toLowerCase().includes('email not verified');
+      
+      if (isVerificationError) {
+        toast.error('Please verify your email before logging in.');
+      } else {
+        toast.error(message);
+      }
+      
       console.error('Login error:', error.response?.data);
-      return { success: false, message };
+      return { 
+        success: false, 
+        message,
+        needsVerification: isVerificationError
+      };
     }
   };
 
@@ -83,7 +95,8 @@ export const AuthProvider = ({ children }) => {
         return { 
           success: true, 
           requires_confirmation: true,
-          message: response.data.message
+          message: response.data.message,
+          email: userData.email
         };
       }
       
@@ -101,6 +114,25 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const resendVerification = async (email) => {
+    try {
+      console.log('Resending verification email to:', email);
+      const response = await api.post('/api/auth/resend-verification', { email });
+      
+      if (response.data.success || response.status === 200) {
+        toast.success('Verification email resent! Please check your inbox.');
+        return { success: true, message: response.data.message };
+      } else {
+        throw new Error(response.data.message || 'Failed to resend verification');
+      }
+    } catch (error) {
+      const message = error.response?.data?.detail || 'Failed to resend verification email. Please try again.';
+      toast.error(message);
+      console.error('Resend verification error:', error.response?.data);
+      return { success: false, message };
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     delete api.defaults.headers.common['Authorization'];
@@ -109,13 +141,19 @@ export const AuthProvider = ({ children }) => {
     toast.success('Logged out successfully');
   };
 
+  const updateUser = (updatedData) => {
+    setUser(prev => ({ ...prev, ...updatedData }));
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
       loading, 
       login, 
       register, 
-      logout, 
+      logout,
+      resendVerification,
+      updateUser,
       isAuthenticated: !!user, 
       token 
     }}>
@@ -123,3 +161,5 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
+export default AuthProvider;

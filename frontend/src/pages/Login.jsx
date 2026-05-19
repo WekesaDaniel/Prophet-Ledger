@@ -1,7 +1,7 @@
 ﻿import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -9,12 +9,15 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setNeedsVerification(false);
     
     if (!email || !password) {
       setError('Please enter both email and password');
@@ -28,9 +31,92 @@ const Login = () => {
     if (result.success) {
       navigate('/mode-selector');
     } else {
-      setError(result.message || 'Invalid email or password. Please try again.');
+      // Check if the error is about email verification
+      const errorMessage = result.message || 'Invalid email or password. Please try again.';
+      
+      if (errorMessage.toLowerCase().includes('verify') || 
+          errorMessage.toLowerCase().includes('confirmed') ||
+          errorMessage.toLowerCase().includes('email not verified')) {
+        setNeedsVerification(true);
+        setUnverifiedEmail(email);
+        setError('');
+      } else {
+        setError(errorMessage);
+      }
     }
   };
+
+  const openGmail = () => {
+    window.open('https://mail.google.com', '_blank');
+  };
+
+  const resendVerificationEmail = async () => {
+    setLoading(true);
+    try {
+      // Call your backend to resend verification email
+      const response = await fetch('https://prophetledger-api.vercel.app/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: unverifiedEmail })
+      });
+      
+      if (response.ok) {
+        setError('Verification email resent! Please check your inbox.');
+      } else {
+        setError('Could not resend verification email. Please try again later.');
+      }
+    } catch (err) {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  // Email verification required screen
+  if (needsVerification) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="flex justify-center mb-4">
+            <Mail className="w-16 h-16 text-yellow-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Verify Your Email</h2>
+          <p className="text-gray-600 mb-2">
+            Please verify your email address before logging in.
+          </p>
+          <p className="text-blue-600 font-medium mb-4">{unverifiedEmail}</p>
+          <p className="text-gray-500 text-sm mb-6">
+            We've sent a confirmation link to your email. Click the link in the email to activate your account.
+          </p>
+          
+          <div className="space-y-3">
+            <button
+              onClick={openGmail}
+              className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-2 rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+            >
+              <Mail className="w-4 h-4" />
+              Open Gmail
+            </button>
+            
+            <button
+              onClick={resendVerificationEmail}
+              disabled={loading}
+              className="w-full bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition-all"
+            >
+              {loading ? 'Sending...' : 'Resend Verification Email'}
+            </button>
+            
+            <Link
+              to="/login"
+              onClick={() => setNeedsVerification(false)}
+              className="block text-blue-600 hover:text-blue-700 text-sm mt-4"
+            >
+              ← Back to Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
@@ -45,8 +131,8 @@ const Login = () => {
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
-            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5" />
-            <p className="text-red-700 text-sm">{error}</p>
+            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+            <p className="text-red-700 text-sm flex-1">{error}</p>
           </div>
         )}
 
@@ -64,6 +150,7 @@ const Login = () => {
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 placeholder="you@example.com"
                 required
+                autoComplete="email"
               />
             </div>
           </div>
@@ -81,6 +168,7 @@ const Login = () => {
                 className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
               />
               <button
                 type="button"

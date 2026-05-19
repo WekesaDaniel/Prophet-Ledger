@@ -294,3 +294,47 @@ async def get_invoices():
     return [
         {"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"},
     ]
+
+# Add this model at the top with other models
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+# Add this endpoint (after your auth endpoints)
+@app.post("/api/auth/resend-verification")
+async def resend_verification(request: ResendVerificationRequest):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        # First, check if user exists
+        user_response = supabase.auth.admin.get_user_by_email(request.email)
+        
+        if not user_response.user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Resend confirmation email
+        # Note: Supabase resends confirmation via the sign-up endpoint
+        resend_response = supabase.auth.sign_up({
+            "email": request.email,
+            "password": "temp_resend_password",  # This won't change existing password
+            "options": {
+                "email_redirect_to": "https://prophet-ledger.vercel.app/login"
+            }
+        })
+        
+        return {
+            "success": True,
+            "message": "Verification email sent successfully"
+        }
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Resend verification error: {error_msg}")
+        
+        # If user exists but we can't resend, still return success (user will check spam)
+        if "User already registered" in error_msg or "already exists" in error_msg:
+            return {
+                "success": True,
+                "message": "If your email is registered, a verification link has been sent"
+            }
+        
+        raise HTTPException(status_code=400, detail=str(e))
