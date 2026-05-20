@@ -38,10 +38,7 @@ const Sidebar = ({ mode }) => {
   return (
     <aside className="w-64 bg-white border-r min-h-screen sticky top-0">
       <div className="p-4 border-b">
-        <div className="flex items-center space-x-2">
-          <span className="text-2xl">🔮</span>
-          <span className="font-bold text-lg">ProphetLedger</span>
-        </div>
+        
         <div className="text-xs text-gray-500 mt-1 flex items-center">
           <DollarSign className="w-3 h-3 mr-0.5" />
           Currency: {currencySymbol}
