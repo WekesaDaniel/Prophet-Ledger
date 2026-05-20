@@ -18,6 +18,43 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
 
+  // Handle email confirmation from URL
+  useEffect(() => {
+    const handleEmailConfirmation = async () => {
+      // Check if we're on the login page with a hash fragment
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      const type = hashParams.get('type');
+      
+      if (type === 'signup' || type === 'recovery') {
+        if (access_token) {
+          // Set the session from the confirmation
+          const { data, error } = await supabase.auth.setSession({
+            access_token: access_token,
+            refresh_token: refresh_token
+          });
+          
+          if (!error && data.session) {
+            setSession(data.session);
+            setUser(data.session.user);
+            toast.success('Email verified successfully! You can now log in.');
+            
+            // Clear the hash from URL
+            window.location.hash = '';
+            // Navigate to login
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 2000);
+          }
+        }
+      }
+    };
+    
+    handleEmailConfirmation();
+  }, []);
+
+  // Get initial session and listen for auth changes
   useEffect(() => {
     // Get initial session
     const getInitialSession = async () => {
@@ -234,42 +271,5 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
-// frontend/src/contexts/AuthContext.jsx - Add this useEffect to handle email confirmation
-
-useEffect(() => {
-  // Handle email confirmation from URL
-  const handleEmailConfirmation = async () => {
-    // Check if we're on the login page with a hash fragment
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const accessToken = hashParams.get('access_token');
-    const refreshToken = hashParams.get('refresh_token');
-    const type = hashParams.get('type');
-    
-    if (type === 'signup' || type === 'recovery') {
-      if (access_token) {
-        // Set the session from the confirmation
-        const { data, error } = await supabase.auth.setSession({
-          access_token: access_token,
-          refresh_token: refresh_token
-        });
-        
-        if (!error && data.session) {
-          setSession(data.session);
-          setUser(data.session.user);
-          toast.success('Email verified successfully! You can now log in.');
-          
-          // Clear the hash from URL
-          window.location.hash = '';
-          // Navigate to login
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 2000);
-        }
-      }
-    }
-  };
-  
-  handleEmailConfirmation();
-}, []);
 
 export default AuthProvider;
