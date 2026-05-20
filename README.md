@@ -90,119 +90,125 @@
 
 ---
 
-##  File Structure
 
+## 📁 File Structure
 
 prophetledger/
 │
 ├── backend/
-│   ├── app/
-│   │   ├── main.py                 # FastAPI entry point
-│   │   ├── config.py               # Configuration
-│   │   ├── database.py             # DB connection
-│   │   │
-│   │   ├── api/
-│   │   │   ├── auth.py             #  Arnold (JWT, login, register)
-│   │   │   ├── users.py            #  Arnold (user management)
-│   │   │   ├── transactions.py     #  Daniel
-│   │   │   ├── invoices.py         #  Daniel
-│   │   │   ├── forecasts.py        #  Josiah
-│   │   │   ├── anomalies.py        #  Arnold
-│   │   │   ├── chatbot.py          #  Geoffrey
-│   │   │   └── dss.py              #  Daniel
-│   │   │
-│   │   ├── services/
-│   │   │   ├── scanner.py          #  Daniel (PDF extraction)
-│   │   │   ├── forecast.py         #  Josiah (ARIMA/LSTM)
-│   │   │   ├── anomaly.py          #  Arnold (Isolation Forest)
-│   │   │   ├── chatbot.py          #  Geoffrey (NLP)
-│   │   │   │
-│   │   │   └── dss/                #  Daniel
-│   │   │       ├── risk_engine.py
-│   │   │       ├── kpi_engine.py
-│   │   │       ├── alert_engine.py
-│   │   │       └── what_if_evaluator.py
-│   │   │
-│   │   └── middleware/             #  Arnold
-│   │       ├── auth.py
-│   │       └── audit.py
-│   │
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .env
+│ │
+│ ├── app/
+│ │ ├── main.py # FastAPI entry point
+│ │ ├── config.py # Configuration
+│ │ ├── database.py # DB connection
+│ │ │
+│ │ ├── api/
+│ │ │ ├── auth.py #  Arnold
+│ │ │ ├── users.py #  Arnold
+│ │ │ ├── transactions.py #  Daniel
+│ │ │ ├── invoices.py #  Daniel
+│ │ │ ├── forecasts.py #  Josiah
+│ │ │ ├── anomalies.py #  Arnold
+│ │ │ ├── chatbot.py #  Geoffrey
+│ │ │ └── dss.py #  Daniel
+│ │ │
+│ │ ├── services/
+│ │ │ ├── scanner.py #  Daniel
+│ │ │ ├── forecast.py #  Josiah
+│ │ │ ├── anomaly.py #  Arnold
+│ │ │ ├── chatbot.py #  Geoffrey
+│ │ │ │
+│ │ │ └── dss/ #  Daniel
+│ │ │ ├── risk_engine.py
+│ │ │ ├── kpi_engine.py
+│ │ │ ├── alert_engine.py
+│ │ │ └── what_if_evaluator.py
+│ │ │
+│ │ └── middleware/ #  Arnold
+│ │ ├── auth.py
+│ │ └── audit.py
+│ │
+│ ├── requirements.txt
+│ ├── Dockerfile
+│ └── .env
 │
 └── frontend/
-    └── src/
-        ├── App.js                  # Main routing with Layout
-        ├── index.js
-        ├── index.css
-        │
-        ├── contexts/
-        │   ├── AuthContext.jsx     # Authentication state
-        │   └── ModeContext.jsx     # Mode & currency management
-        │
-        ├── pages/
-        │   ├── Login.jsx
-        │   ├── Register.jsx
-        │   ├── ModeSelector.jsx    # Mode + currency selection
-        │   ├── Dashboard.jsx       # Main dashboard
-        │   ├── Transactions.jsx    # Transaction management
-        │   ├── Invoices.jsx        # Invoice management
-        │   ├── Forecasts.jsx       # AI predictions
-        │   ├── Anomalies.jsx       # Fraud detection
-        │   ├── DSS.jsx             # Decision support
-        │   ├── Reports.jsx         # Financial reports
-        │   ├── Settings.jsx        # User preferences
-        │   └── Admin.jsx           # Enterprise admin
-        │
-        ├── components/
-        │   ├── layout/
-        │   │   ├── Layout.jsx      #  Persistent sidebar wrapper
-        │   │   ├── Header.jsx      # Navigation header
-        │   │   └── Sidebar.jsx     #  Sidebar navigation
-        │   │
-        │   ├── dashboard/
-        │   │   ├── KpiGrid.jsx     #  Daniel ⚠️ 
-        │   │   ├── RiskHeatmap.jsx # Daniel ⚠️ 
-        │   │   ├── TrendChart.jsx  #  Josiah ⚠️ 
-        │   │   ├── AnomalyTable.jsx#  Arnold ⚠️ 
-        │   │   └── AlertCenter.jsx #  Arnold ⚠️ 
-        │   │
-        │   ├── dss/
-        │   │   ├── ScenarioSimulator.jsx  #  Daniel ⚠️ 
-        │   │   └── ScoreMeter.jsx         #  Daniel ⚠️ 
-        │   │
-        │   ├── invoices/
-        │   │   ├── PDFUploader.jsx        #  Daniel ⚠️ 
-        │   │   └── InvoiceList.jsx        #  Daniel ⚠️ 
-        │   │
-        │   ├── transactions/
-        │   │   ├── TransactionForm.jsx    #  Daniel ⚠️ 
-        │   │   └── TransactionList.jsx    #  Daniel ⚠️ 
-        │   │
-        │   ├── chat/
-        │   │   └── Chatbot.jsx            #  Geoffrey ⚠️ 
-        │   │
-        │   └── shared/
-        │       ├── PrivateRoute.jsx
-        │       ├── LoadingSpinner.jsx
-        │       └── ErrorBoundary.jsx
-        │
-        ├── services/
-        │   ├── api.js
-        │   ├── dssService.js       #  Daniel
-        │   ├── forecastService.js  #  Josiah
-        │   ├── anomalyService.js   #  Arnold
-        │   └── chatService.js      #  Geoffrey
-        │
-        ├── hooks/
-        │   ├── useAuth.js
-        │   └── useDSS.js           #  Daniel
-        │
-        └── utils/
-            ├── formatters.js
-            └── charts.js
-```
+│
+└── src/
+├── App.js
+├── index.js
+├── index.css
+│
+├── contexts/
+│ ├── AuthContext.jsx
+│ └── ModeContext.jsx
+│
+├── pages/
+│ ├── Login.jsx
+│ ├── Register.jsx
+│ ├── ModeSelector.jsx
+│ ├── Dashboard.jsx
+│ ├── Transactions.jsx
+│ ├── Invoices.jsx
+│ ├── Forecasts.jsx
+│ ├── Anomalies.jsx
+│ ├── DSS.jsx
+│ ├── Reports.jsx
+│ ├── Settings.jsx
+│ └── Admin.jsx
+│
+├── components/
+│ ├── layout/
+│ │ ├── Layout.jsx ✅
+│ │ ├── Header.jsx
+│ │ └── Sidebar.jsx ✅
+│ │
+│ ├── dashboard/
+│ │ ├── KpiGrid.jsx ⚠️ 
+│ │ ├── RiskHeatmap.jsx ⚠️ 
+│ │ ├── TrendChart.jsx ⚠️ 
+│ │ ├── AnomalyTable.jsx ⚠️ 
+│ │ └── AlertCenter.jsx ⚠️ 
+│ │
+│ ├── dss/
+│ │ ├── ScenarioSimulator.jsx ⚠️ 
+│ │ └── ScoreMeter.jsx ⚠️ 
+│ │
+│ ├── invoices/
+│ │ ├── PDFUploader.jsx ⚠️ 
+│ │ └── InvoiceList.jsx ⚠️ 
+│ │
+│ ├── transactions/
+│ │ ├── TransactionForm.jsx ⚠️ 
+│ │ └── TransactionList.jsx ⚠️ 
+│ │
+│ ├── chat/
+│ │ └── Chatbot.jsx ⚠️ 
+│ │
+│ └── shared/
+│ ├── PrivateRoute.jsx
+│ ├── LoadingSpinner.jsx
+│ └── ErrorBoundary.jsx
+│
+├── services/
+│ ├── api.js
+│ ├── dssService.js
+│ ├── forecastService.js
+│ ├── anomalyService.js
+│ └── chatService.js
+│
+├── hooks/
+│ ├── useAuth.js
+│ └── useDSS.js
+│
+└── utils/
+├── formatters.js
+└── charts.js
+text
+
+
+
+
 
 > **Legend:** ⚠️  = Contains mock data needing API integration | ✅ NEW = Recently added/updated
 
@@ -447,16 +453,5 @@ MIT License - see [LICENSE](LICENSE) file for details.
 </div>
 ```
 
-## Key improvements made:
 
-1. **Fixed formatting** - Consistent code blocks with proper language specifiers
-2. **Improved table alignment** - Better visual hierarchy
-3. **Fixed the file structure** - Proper tree formatting with consistent indentation
-4. **Added checkboxes** - Interactive task lists for API integration
-5. **Better visual separation** - Clear section boundaries
-6. **Fixed the footer** - Properly formatted author credits and links
-7. **Consistent emoji usage** - Maintained but organized
-8. **Clearer labels** - "Future API Endpoint" instead of "API Endpoint (When Ready)"
-9. **Added legend** - For understanding symbols and markers
-10. **Improved code examples** - Properly formatted with comments
 
