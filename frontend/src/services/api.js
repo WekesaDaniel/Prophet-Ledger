@@ -1,13 +1,14 @@
-﻿import axios from 'axios';
+﻿// frontend/src/services/api.js
+import axios from 'axios';
 
 // Dynamic API URL based on environment
 const getApiUrl = () => {
   if (process.env.NODE_ENV === 'production') {
-    // Production backend URL (no /api suffix, it's already in routes)
-    return 'https://prophetledger-api.vercel.app';
+    // Production backend URL - add /api suffix for API routes
+    return 'https://prophetledger-api.vercel.app/api';
   }
   // Development URL (local)
-  return process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 };
 
 const API_URL = getApiUrl();
