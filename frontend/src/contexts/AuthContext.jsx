@@ -21,7 +21,6 @@ export const AuthProvider = ({ children }) => {
   // Handle email confirmation from URL
   useEffect(() => {
     const handleEmailConfirmation = async () => {
-      // Check if we're on the login page with a hash fragment
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
@@ -29,20 +28,28 @@ export const AuthProvider = ({ children }) => {
       
       if (type === 'signup' || type === 'recovery') {
         if (access_token) {
-          // Set the session from the confirmation
           const { data, error } = await supabase.auth.setSession({
-            access_token: access_token,
-            refresh_token: refresh_token
+            access_token: accessToken,
+            refresh_token: refreshToken
           });
           
           if (!error && data.session) {
             setSession(data.session);
-            setUser(data.session.user);
-            toast.success('Email verified successfully! You can now log in.');
             
-            // Clear the hash from URL
+            // Extract user data with full_name
+            const userData = {
+              id: data.session.user.id,
+              email: data.session.user.email,
+              full_name: data.session.user.user_metadata?.full_name || 
+                        data.session.user.user_metadata?.name || 
+                        data.session.user.email?.split('@')[0] || 
+                        'User',
+              email_confirmed: data.session.user.confirmed_at !== null,
+              created_at: data.session.user.created_at
+            };
+            setUser(userData);
+            toast.success('Email verified successfully! You can now log in.');
             window.location.hash = '';
-            // Navigate to login
             setTimeout(() => {
               window.location.href = '/login';
             }, 2000);
@@ -56,12 +63,27 @@ export const AuthProvider = ({ children }) => {
 
   // Get initial session and listen for auth changes
   useEffect(() => {
-    // Get initial session
     const getInitialSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
-        setUser(session?.user ?? null);
+        
+        // Extract user data including full_name from metadata
+        if (session?.user) {
+          const userData = {
+            id: session.user.id,
+            email: session.user.email,
+            full_name: session.user.user_metadata?.full_name || 
+                      session.user.user_metadata?.name || 
+                      session.user.email?.split('@')[0] || 
+                      'User',
+            email_confirmed: session.user.confirmed_at !== null,
+            created_at: session.user.created_at
+          };
+          setUser(userData);
+        } else {
+          setUser(null);
+        }
       } catch (error) {
         console.error('Error getting session:', error);
       } finally {
@@ -74,7 +96,23 @@ export const AuthProvider = ({ children }) => {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      setUser(session?.user ?? null);
+      
+      // Extract user data including full_name from metadata
+      if (session?.user) {
+        const userData = {
+          id: session.user.id,
+          email: session.user.email,
+          full_name: session.user.user_metadata?.full_name || 
+                    session.user.user_metadata?.name || 
+                    session.user.email?.split('@')[0] || 
+                    'User',
+          email_confirmed: session.user.confirmed_at !== null,
+          created_at: session.user.created_at
+        };
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
 
@@ -90,14 +128,12 @@ export const AuthProvider = ({ children }) => {
       });
       
       if (error) {
-        // Check if error is due to unverified email
         const errorMessage = error.message?.toLowerCase() || '';
         const isVerificationError = errorMessage.includes('email not confirmed') ||
                                     errorMessage.includes('verify') ||
                                     errorMessage.includes('unverified') ||
                                     errorMessage.includes('confirm your email');
         
-        // Check for invalid credentials
         const isInvalidCredentials = errorMessage.includes('invalid login credentials') ||
                                      errorMessage.includes('invalid credentials');
         
@@ -118,7 +154,6 @@ export const AuthProvider = ({ children }) => {
           };
         }
         
-        // Generic error
         return { 
           success: false, 
           message: error.message || 'Login failed. Please try again.',
@@ -126,10 +161,22 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      setUser(data.user);
+      // Extract user data with full_name from metadata
+      const userData = {
+        id: data.user.id,
+        email: data.user.email,
+        full_name: data.user.user_metadata?.full_name || 
+                  data.user.user_metadata?.name || 
+                  data.user.email?.split('@')[0] || 
+                  'User',
+        email_confirmed: data.user.confirmed_at !== null,
+        created_at: data.user.created_at
+      };
+      
+      setUser(userData);
       setSession(data.session);
-      toast.success('Login successful!');
-      return { success: true, user: data.user };
+      toast.success(`Welcome back, ${userData.full_name}!`);
+      return { success: true, user: userData };
     } catch (error) {
       const message = error.message || 'Login failed. Please check your credentials.';
       toast.error(message);
@@ -141,18 +188,20 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       console.log('Attempting registration:', userData.email);
+      console.log('Full name being sent:', userData.full_name); // Debug log
+      
       const { data, error } = await supabase.auth.signUp({
         email: userData.email,
         password: userData.password,
         options: {
           data: {
-            full_name: userData.full_name
+            full_name: userData.full_name,  // This is key!
+            name: userData.full_name        // Also set as name for compatibility
           }
         }
       });
       
       if (error) {
-        // Check if user already exists
         if (error.message?.toLowerCase().includes('already registered')) {
           toast.error('User already exists. Please login.');
           return { 
@@ -164,7 +213,8 @@ export const AuthProvider = ({ children }) => {
         throw error;
       }
       
-      // Check if user already exists (identities length 0 means user exists but email unconfirmed)
+      console.log('Supabase response:', data);
+      
       if (data.user?.identities?.length === 0) {
         toast.info('User already exists. Please login or resend verification email.');
         return { 
@@ -175,7 +225,6 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      // Check if email confirmation is required
       if (data.user?.confirmed_at) {
         toast.success('Registration successful! Please login.');
         return { 
@@ -240,9 +289,20 @@ export const AuthProvider = ({ children }) => {
       
       if (error) throw error;
       
-      setUser(data.user);
+      const updatedUserData = {
+        id: data.user.id,
+        email: data.user.email,
+        full_name: data.user.user_metadata?.full_name || 
+                  data.user.user_metadata?.name || 
+                  data.user.email?.split('@')[0] || 
+                  'User',
+        email_confirmed: data.user.confirmed_at !== null,
+        created_at: data.user.created_at
+      };
+      
+      setUser(updatedUserData);
       toast.success('Profile updated successfully');
-      return { success: true, user: data.user };
+      return { success: true, user: updatedUserData };
     } catch (error) {
       const message = error.message || 'Failed to update profile';
       toast.error(message);
@@ -252,6 +312,10 @@ export const AuthProvider = ({ children }) => {
 
   const getAccessToken = () => {
     return session?.access_token || null;
+  };
+
+  const getUserName = () => {
+    return user?.full_name || user?.email?.split('@')[0] || 'User';
   };
 
   return (
@@ -265,6 +329,7 @@ export const AuthProvider = ({ children }) => {
       resendVerification,
       updateUser,
       getAccessToken,
+      getUserName,
       isAuthenticated: !!user
     }}>
       {children}

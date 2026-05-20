@@ -16,6 +16,7 @@ const Register = () => {
   const [error, setError] = useState('');
   const [needsVerification, setNeedsVerification] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
+  const [success, setSuccess] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -61,7 +62,15 @@ const Register = () => {
     setLoading(true);
     setError('');
     
-    const { confirmPassword, ...userData } = formData;
+    // ✅ CORRECT: Send full_name as part of userData
+    const userData = {
+      email: formData.email,
+      password: formData.password,
+      full_name: formData.full_name  // Make sure this is included!
+    };
+    
+    console.log('Registering user:', { email: userData.email, full_name: userData.full_name });
+    
     const result = await register(userData);
     
     setLoading(false);
@@ -71,10 +80,13 @@ const Register = () => {
         setNeedsVerification(true);
         setRegisteredEmail(formData.email);
       } else {
+        setSuccess(true);
         setTimeout(() => {
           navigate('/login');
         }, 2000);
       }
+    } else {
+      setError(result.message || 'Registration failed. Please try again.');
     }
   };
 
@@ -105,9 +117,26 @@ const Register = () => {
       </div>
     );
   }
-  // In Register.jsx - update the success handling
-  if (result.requires_confirmation) {
-    navigate('/verify-email', { state: { email: formData.email } });
+
+  // Success screen
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="flex justify-center mb-4">
+            <CheckCircle className="w-16 h-16 text-green-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Registration Successful!</h2>
+          <p className="text-gray-600 mb-4">Your account has been created.</p>
+          <p className="text-sm text-gray-500">Redirecting to login page...</p>
+          <div className="mt-4">
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-green-500 h-2 rounded-full animate-pulse w-full"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -121,14 +150,6 @@ const Register = () => {
           </h1>
           <p className="text-gray-500 text-sm mt-2">Create your account</p>
         </div>
-
-        {/* Success message */}
-        {!needsVerification && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-2">
-            <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-            <p className="text-green-700 text-sm">Registration successful! Redirecting to login...</p>
-          </div>
-        )}
 
         {/* Error message */}
         {error && (

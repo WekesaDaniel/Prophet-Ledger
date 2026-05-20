@@ -18,7 +18,7 @@ import {
 
 const Dashboard = () => {
   const { mode, currency, currencySymbol } = useMode();
-  const { user } = useAuth();
+  const { user, getUserName } = useAuth();
 
   const getModeGreeting = () => {
     switch(mode) {
@@ -38,6 +38,12 @@ const Dashboard = () => {
     }
   };
 
+  // Get the display name - prioritize full_name, then email username, fallback to 'User'
+  const displayName = user?.full_name?.split(' ')[0] || 
+                      getUserName() || 
+                      user?.email?.split('@')[0] || 
+                      'User';
+
   return (
     <>
       {/* Hero Section */}
@@ -46,7 +52,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">
-                Welcome back, {user?.full_name?.split(' ')[0] || 'User'}
+                Welcome back, {displayName}!
               </h1>
               <p className="text-blue-100 mt-1 flex items-center">
                 {getModeIcon()}
