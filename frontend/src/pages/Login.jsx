@@ -1,7 +1,9 @@
-﻿import React, { useState } from 'react';
+﻿// frontend/src/pages/Login.jsx
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { supabase } from '../services/supabaseClient';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -22,14 +24,71 @@ const Login = () => {
     }
     
     setLoading(true);
-    const result = await login(email, password);
-    setLoading(false);
     
-    if (result.success) {
-      navigate('/mode-selector');
-    } else {
-      setError(result.message || 'Invalid email or password. Please try again.');
+    try {
+      // Direct Supabase login
+      const { data, error: supabaseError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+      
+      if (supabaseError) {
+        // Check if error is due to unverified email
+        if (supabaseError.message.toLowerCase().includes('email not confirmed') ||
+            supabaseError.message.toLowerCase().includes('verify')) {
+          setError('Please verify your email before logging in. Check your inbox for the confirmation link.');
+          
+          // Option to resend verification email
+          const { error: resendError } = await supabase.auth.resend({
+            type: 'signup',
+            email: email
+          });
+          
+          if (!resendError) {
+            setError(prev => prev + ' A new verification email has been sent.');
+          }
+        } else {
+          setError(supabaseError.message || 'Invalid email or password');
+        }
+        setLoading(false);
+        return;
+      }
+      
+      if (data?.session) {
+        // Store session in your auth context
+        const result = await login(email, password);
+        if (result.success) {
+          navigate('/mode-selector');
+        } else {
+          setError(result.message || 'Login failed');
+        }
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error('Login error:', err);
     }
+    
+    setLoading(false);
+  };
+
+  const resendVerificationEmail = async () => {
+    if (!email) {
+      setError('Please enter your email address first');
+      return;
+    }
+    
+    setLoading(true);
+    const { error: resendError } = await supabase.auth.resend({
+      type: 'signup',
+      email: email
+    });
+    
+    if (resendError) {
+      setError(resendError.message || 'Failed to resend verification email');
+    } else {
+      setError('Verification email resent! Please check your inbox.');
+    }
+    setLoading(false);
   };
 
   return (
@@ -45,8 +104,8 @@ const Login = () => {
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
-            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5" />
-            <p className="text-red-700 text-sm">{error}</p>
+            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+            <p className="text-red-700 text-sm flex-1">{error}</p>
           </div>
         )}
 
@@ -64,6 +123,7 @@ const Login = () => {
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 placeholder="you@example.com"
                 required
+                autoComplete="email"
               />
             </div>
           </div>
@@ -81,6 +141,7 @@ const Login = () => {
                 className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
               />
               <button
                 type="button"
@@ -107,6 +168,16 @@ const Login = () => {
             )}
           </button>
         </form>
+
+        <div className="mt-4 text-center">
+          <button
+            onClick={resendVerificationEmail}
+            disabled={loading}
+            className="text-sm text-blue-600 hover:text-blue-700"
+          >
+            Resend verification email
+          </button>
+        </div>
 
         <p className="text-center text-sm text-gray-600 mt-6">
           Don't have an account?{' '}

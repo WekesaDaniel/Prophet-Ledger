@@ -22,6 +22,7 @@ prophetledger.db
 .env.local
 .env.*.local
 
+
 # Node modules
 node_modules/
 
@@ -58,4 +59,11 @@ start-frontend.ps1
 start-backend.ps1
 stop-all.ps1
 .vercel
-.env*.local
+*.env*.local
+*.env*.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+backend/.env
+backend/.env.local
+backend/.env.production
