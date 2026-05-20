@@ -1,6 +1,6 @@
 ﻿// frontend/src/contexts/AuthContext.jsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import api from '../services/api';
+import { supabase } from '../services/supabaseClient';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -16,100 +16,117 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [session, setSession] = useState(null);
 
   useEffect(() => {
-    if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      loadUser();
-    } else {
-      setLoading(false);
-    }
-  }, [token]);
+    // Get initial session
+    const getInitialSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
+      } catch (error) {
+        console.error('Error getting session:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const loadUser = async () => {
-    try {
-      const response = await api.get('/api/auth/me');
-      setUser(response.data);
-    } catch (error) {
-      console.error('Failed to load user:', error);
-      localStorage.removeItem('token');
-      setToken(null);
-      delete api.defaults.headers.common['Authorization'];
-    } finally {
+    getInitialSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
       setLoading(false);
-    }
-  };
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const login = async (email, password) => {
     try {
       console.log('Attempting login:', email);
-      const response = await api.post('/api/auth/login', { email, password });
-      console.log('Login response:', response.data);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
       
-      const { access_token, user: userData } = response.data;
-      
-      localStorage.setItem('token', access_token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      setToken(access_token);
-      setUser(userData);
-      
-      toast.success('Login successful!');
-      return { success: true, user: userData };
-    } catch (error) {
-      const message = error.response?.data?.detail || 'Login failed. Please check your credentials.';
-      
-      // Check if the error is about email verification
-      const isVerificationError = message.toLowerCase().includes('verify') || 
-                                  message.toLowerCase().includes('confirmed') ||
-                                  message.toLowerCase().includes('email not verified');
-      
-      if (isVerificationError) {
-        toast.error('Please verify your email before logging in.');
-      } else {
-        toast.error(message);
+      if (error) {
+        // Check if error is due to unverified email
+        const isVerificationError = error.message?.toLowerCase().includes('email not confirmed') ||
+                                    error.message?.toLowerCase().includes('verify');
+        
+        if (isVerificationError) {
+          return { 
+            success: false, 
+            message: 'Please verify your email before logging in. Check your inbox for the confirmation link.',
+            needsVerification: true,
+            email: email
+          };
+        }
+        
+        throw error;
       }
       
-      console.error('Login error:', error.response?.data);
-      return { 
-        success: false, 
-        message,
-        needsVerification: isVerificationError
-      };
+      setUser(data.user);
+      setSession(data.session);
+      toast.success('Login successful!');
+      return { success: true, user: data.user };
+    } catch (error) {
+      const message = error.message || 'Login failed. Please check your credentials.';
+      toast.error(message);
+      console.error('Login error:', error);
+      return { success: false, message };
     }
   };
 
   const register = async (userData) => {
     try {
       console.log('Attempting registration:', userData.email);
-      const response = await api.post('/api/auth/register', {
+      const { data, error } = await supabase.auth.signUp({
         email: userData.email,
-        full_name: userData.full_name,
-        password: userData.password
+        password: userData.password,
+        options: {
+          data: {
+            full_name: userData.full_name
+          }
+        }
       });
       
-      console.log('Registration response:', response.data);
+      if (error) throw error;
       
-      if (response.data.requires_confirmation) {
-        toast.success('Please check your email to verify your account!');
+      // Check if user already exists
+      if (data.user?.identities?.length === 0) {
+        toast.error('User already exists. Please login.');
         return { 
-          success: true, 
-          requires_confirmation: true,
-          message: response.data.message,
-          email: userData.email
+          success: false, 
+          requires_confirmation: false, 
+          message: 'User already exists' 
         };
       }
       
-      toast.success('Registration successful! Please login.');
-      return { 
-        success: true, 
-        requires_confirmation: false,
-        message: response.data.message
-      };
+      // Check if email confirmation is required
+      if (data.user?.confirmed_at) {
+        toast.success('Registration successful! Please login.');
+        return { 
+          success: true, 
+          requires_confirmation: false,
+          message: 'Registration successful!'
+        };
+      } else {
+        toast.success('Please check your email to verify your account!');
+        return { 
+          success: true, 
+          requires_confirmation: true, 
+          email: userData.email,
+          message: 'Verification email sent. Please check your inbox.'
+        };
+      }
     } catch (error) {
-      const message = error.response?.data?.detail || 'Registration failed. Please try again.';
+      const message = error.message || 'Registration failed. Please try again.';
       toast.error(message);
-      console.error('Registration error:', error.response?.data);
+      console.error('Registration error:', error);
       return { success: false, message };
     }
   };
@@ -117,45 +134,69 @@ export const AuthProvider = ({ children }) => {
   const resendVerification = async (email) => {
     try {
       console.log('Resending verification email to:', email);
-      const response = await api.post('/api/auth/resend-verification', { email });
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email
+      });
       
-      if (response.data.success || response.status === 200) {
-        toast.success('Verification email resent! Please check your inbox.');
-        return { success: true, message: response.data.message };
-      } else {
-        throw new Error(response.data.message || 'Failed to resend verification');
-      }
+      if (error) throw error;
+      
+      toast.success('Verification email resent! Please check your inbox.');
+      return { success: true, message: 'Verification email sent' };
     } catch (error) {
-      const message = error.response?.data?.detail || 'Failed to resend verification email. Please try again.';
+      const message = error.message || 'Failed to resend verification email';
       toast.error(message);
-      console.error('Resend verification error:', error.response?.data);
+      console.error('Resend verification error:', error);
       return { success: false, message };
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    delete api.defaults.headers.common['Authorization'];
-    setToken(null);
-    setUser(null);
-    toast.success('Logged out successfully');
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
+      toast.success('Logged out successfully');
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Error logging out');
+    }
   };
 
-  const updateUser = (updatedData) => {
-    setUser(prev => ({ ...prev, ...updatedData }));
+  const updateUser = async (updates) => {
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        data: updates
+      });
+      
+      if (error) throw error;
+      
+      setUser(data.user);
+      toast.success('Profile updated successfully');
+      return { success: true, user: data.user };
+    } catch (error) {
+      const message = error.message || 'Failed to update profile';
+      toast.error(message);
+      return { success: false, message };
+    }
+  };
+
+  const getAccessToken = () => {
+    return session?.access_token || null;
   };
 
   return (
     <AuthContext.Provider value={{ 
       user, 
+      session,
       loading, 
       login, 
       register, 
       logout,
       resendVerification,
       updateUser,
-      isAuthenticated: !!user, 
-      token 
+      getAccessToken,
+      isAuthenticated: !!user
     }}>
       {children}
     </AuthContext.Provider>
