@@ -54,8 +54,15 @@ export const AuthProvider = ({ children }) => {
       
       if (error) {
         // Check if error is due to unverified email
-        const isVerificationError = error.message?.toLowerCase().includes('email not confirmed') ||
-                                    error.message?.toLowerCase().includes('verify');
+        const errorMessage = error.message?.toLowerCase() || '';
+        const isVerificationError = errorMessage.includes('email not confirmed') ||
+                                    errorMessage.includes('verify') ||
+                                    errorMessage.includes('unverified') ||
+                                    errorMessage.includes('confirm your email');
+        
+        // Check for invalid credentials
+        const isInvalidCredentials = errorMessage.includes('invalid login credentials') ||
+                                     errorMessage.includes('invalid credentials');
         
         if (isVerificationError) {
           return { 
@@ -66,7 +73,20 @@ export const AuthProvider = ({ children }) => {
           };
         }
         
-        throw error;
+        if (isInvalidCredentials) {
+          return { 
+            success: false, 
+            message: 'Invalid email or password. Please check your credentials and try again.',
+            needsVerification: false
+          };
+        }
+        
+        // Generic error
+        return { 
+          success: false, 
+          message: error.message || 'Login failed. Please try again.',
+          needsVerification: false
+        };
       }
       
       setUser(data.user);
@@ -77,7 +97,7 @@ export const AuthProvider = ({ children }) => {
       const message = error.message || 'Login failed. Please check your credentials.';
       toast.error(message);
       console.error('Login error:', error);
-      return { success: false, message };
+      return { success: false, message, needsVerification: false };
     }
   };
 
@@ -94,15 +114,27 @@ export const AuthProvider = ({ children }) => {
         }
       });
       
-      if (error) throw error;
+      if (error) {
+        // Check if user already exists
+        if (error.message?.toLowerCase().includes('already registered')) {
+          toast.error('User already exists. Please login.');
+          return { 
+            success: false, 
+            requires_confirmation: false, 
+            message: 'User already exists. Please login instead.'
+          };
+        }
+        throw error;
+      }
       
-      // Check if user already exists
+      // Check if user already exists (identities length 0 means user exists but email unconfirmed)
       if (data.user?.identities?.length === 0) {
-        toast.error('User already exists. Please login.');
+        toast.info('User already exists. Please login or resend verification email.');
         return { 
           success: false, 
-          requires_confirmation: false, 
-          message: 'User already exists' 
+          requires_confirmation: true, 
+          email: userData.email,
+          message: 'User already exists. Please check your email for verification or login.'
         };
       }
       
@@ -127,7 +159,7 @@ export const AuthProvider = ({ children }) => {
       const message = error.message || 'Registration failed. Please try again.';
       toast.error(message);
       console.error('Registration error:', error);
-      return { success: false, message };
+      return { success: false, message, requires_confirmation: false };
     }
   };
 

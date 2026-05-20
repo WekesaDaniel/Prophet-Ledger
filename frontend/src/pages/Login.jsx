@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
 const Login = () => {
@@ -11,12 +11,17 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const [resendSuccess, setResendSuccess] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setNeedsVerification(false);
+    setResendSuccess(false);
     
     if (!email || !password) {
       setError('Please enter both email and password');
@@ -35,21 +40,22 @@ const Login = () => {
       if (supabaseError) {
         // Check if error is due to unverified email
         if (supabaseError.message.toLowerCase().includes('email not confirmed') ||
-            supabaseError.message.toLowerCase().includes('verify')) {
-          setError('Please verify your email before logging in. Check your inbox for the confirmation link.');
+            supabaseError.message.toLowerCase().includes('verify') ||
+            supabaseError.message.toLowerCase().includes('unverified')) {
           
-          // Option to resend verification email
-          const { error: resendError } = await supabase.auth.resend({
-            type: 'signup',
-            email: email
-          });
-          
-          if (!resendError) {
-            setError(prev => prev + ' A new verification email has been sent.');
-          }
+          setNeedsVerification(true);
+          setUnverifiedEmail(email);
+          setError(''); // Clear any previous error
+          setLoading(false);
+          return;
+        } 
+        // Handle invalid credentials
+        else if (supabaseError.message.toLowerCase().includes('invalid login credentials')) {
+          setError('Invalid email or password. Please check your credentials and try again.');
         } else {
-          setError(supabaseError.message || 'Invalid email or password');
+          setError(supabaseError.message || 'Login failed. Please try again.');
         }
+        
         setLoading(false);
         return;
       }
@@ -72,24 +78,78 @@ const Login = () => {
   };
 
   const resendVerificationEmail = async () => {
-    if (!email) {
-      setError('Please enter your email address first');
-      return;
-    }
-    
     setLoading(true);
+    setResendSuccess(false);
+    
     const { error: resendError } = await supabase.auth.resend({
       type: 'signup',
-      email: email
+      email: unverifiedEmail
     });
     
     if (resendError) {
       setError(resendError.message || 'Failed to resend verification email');
     } else {
-      setError('Verification email resent! Please check your inbox.');
+      setResendSuccess(true);
+      setError('');
     }
     setLoading(false);
   };
+
+  // Email verification required screen
+  if (needsVerification) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="flex justify-center mb-4">
+            <Mail className="w-16 h-16 text-yellow-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Verify Your Email</h2>
+          <p className="text-gray-600 mb-2">
+            Please verify your email address before logging in.
+          </p>
+          <p className="text-blue-600 font-medium mb-4">{unverifiedEmail}</p>
+          <p className="text-gray-500 text-sm mb-6">
+            We've sent a confirmation link to your email. Click the link in the email to activate your account.
+          </p>
+          
+          {resendSuccess && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-500" />
+              <p className="text-green-700 text-sm">Verification email resent! Please check your inbox.</p>
+            </div>
+          )}
+          
+          <div className="space-y-3">
+            <button
+              onClick={() => window.open('https://mail.google.com', '_blank')}
+              className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-2 rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+            >
+              <Mail className="w-4 h-4" />
+              Open Gmail
+            </button>
+            
+            <button
+              onClick={resendVerificationEmail}
+              disabled={loading}
+              className="w-full bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Sending...' : 'Resend Verification Email'}
+            </button>
+            
+            <button
+              onClick={() => {
+                setNeedsVerification(false);
+                setError('');
+              }}
+              className="w-full text-blue-600 hover:text-blue-700 text-sm mt-2"
+            >
+              ← Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
@@ -168,16 +228,6 @@ const Login = () => {
             )}
           </button>
         </form>
-
-        <div className="mt-4 text-center">
-          <button
-            onClick={resendVerificationEmail}
-            disabled={loading}
-            className="text-sm text-blue-600 hover:text-blue-700"
-          >
-            Resend verification email
-          </button>
-        </div>
 
         <p className="text-center text-sm text-gray-600 mt-6">
           Don't have an account?{' '}
