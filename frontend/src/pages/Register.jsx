@@ -105,6 +105,10 @@ const Register = () => {
       </div>
     );
   }
+  // In Register.jsx - update the success handling
+  if (result.requires_confirmation) {
+    navigate('/verify-email', { state: { email: formData.email } });
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">

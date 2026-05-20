@@ -21,6 +21,9 @@ import DSS from './pages/DSS';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
+import VerifyEmail from './pages/VerifyEmail';
+
+
 
 function App() {
   return (
@@ -59,6 +62,12 @@ function App() {
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/admin" element={<Admin />} />
+                <Route path="/verify-email" element={
+                  <PrivateRoute>
+                    <VerifyEmail />
+                  </PrivateRoute>
+                } />
+
               </Route>
               
               {/* Default redirect */}
