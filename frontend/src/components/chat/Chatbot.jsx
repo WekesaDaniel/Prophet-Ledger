@@ -1,6 +1,7 @@
 // frontend/src/components/chat/Chatbot.jsx
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, X, Minimize2, Maximize2, Bot, User, HelpCircle, Sparkles } from 'lucide-react';
+import { MessageSquare, Send, X, Minimize2, Maximize2, Bot, User, HelpCircle, Sparkles, Loader } from 'lucide-react';
+import { sendChatMessage } from '../../services/chatService';
 
 const Chatbot = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -8,7 +9,7 @@ const Chatbot = () => {
   const [messages, setMessages] = useState([
     { 
       id: 1, 
-      text: "Hello! I'm your AI Financial Assistant. I can help you understand any page or answer questions about your finances. Click the help button on any page or just ask me anything!", 
+      text: "Hello! I'm your AI Financial Assistant powered by Groq's Llama 3.3 70B model. I can help you understand any page or answer questions about your finances. Click the help button on any page or just ask me anything!", 
       sender: 'bot', 
       timestamp: new Date() 
     }
@@ -69,43 +70,39 @@ const Chatbot = () => {
   const handleSend = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { id: Date.now(), text: input, sender: 'user', timestamp: new Date() };
+    const userMessage = { 
+      id: Date.now(), 
+      text: input, 
+      sender: 'user', 
+      timestamp: new Date() 
+    };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      let response = "";
-      const lowerInput = input.toLowerCase();
+    try {
+      // Call the Groq-powered backend API
+      const response = await sendChatMessage(input);
       
-      // Context-aware responses
-      if (lowerInput.includes('explain') || lowerInput.includes('what is this') || lowerInput.includes('tell me about')) {
-        response = `📖 ${getPageDescription(context?.page || 'dashboard')}\n\nIs there anything specific you'd like to know about this page?`;
-      }
-      else if (lowerInput.includes('help') || lowerInput.includes('how to')) {
-        response = "💡 Here's how I can help:\n\n• Ask me to 'explain this page'\n• Ask about your spending: 'How much did I spend on food?'\n• Check your balance: 'What's my current balance?'\n• Get forecasts: 'Predict my spending for next month'\n• Find anomalies: 'Show me unusual transactions'";
-      }
-      else if (lowerInput.includes('spent') || lowerInput.includes('spend')) {
-        response = "💰 You've spent $3,247 in the last 30 days. Your top categories are:\n• Dining: $780\n• Shopping: $450\n• Transport: $320\n\nWould you like a detailed breakdown?";
-      }
-      else if (lowerInput.includes('balance')) {
-        response = "💵 Your current account balance is $12,845. This is up 8% from last month. Great job!";
-      }
-      else if (lowerInput.includes('forecast') || lowerInput.includes('predict')) {
-        response = "📈 Based on your spending patterns, here's my forecast:\n• Next month: $3,200\n• 3 months: $9,800\n• 6 months: $19,500\n\nThis assumes your current spending habits continue.";
-      }
-      else if (lowerInput.includes('anomaly') || lowerInput.includes('unusual')) {
-        response = "🚨 I've detected 3 unusual transactions in the past week:\n• Amazon: $1,249 (3x normal)\n• Uber: $187 (unusual frequency)\n• Restaurant: $345 (2.5x average)\n\nWould you like to review these?";
-      }
-      else {
-        response = `I understand you're asking about "${input}". I can help with:\n\n• Explaining this page (try "explain this page")\n• Spending analysis\n• Balance inquiries\n• Financial forecasts\n• Anomaly detection\n\nWhat would you like to know more about?`;
-      }
-      
-      const botMessage = { id: Date.now() + 1, text: response, sender: 'bot', timestamp: new Date() };
+      const botMessage = { 
+        id: Date.now() + 1, 
+        text: response.response, 
+        sender: 'bot', 
+        timestamp: new Date() 
+      };
       setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage = { 
+        id: Date.now() + 1, 
+        text: "Sorry, I'm having trouble connecting right now. Please try again later.", 
+        sender: 'bot', 
+        timestamp: new Date() 
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   const handleKeyPress = (e) => {
@@ -189,9 +186,8 @@ const Chatbot = () => {
               <div className="flex justify-start">
                 <div className="bg-white border shadow-sm p-3 rounded-lg">
                   <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200"></div>
+                    <Loader className="w-4 h-4 text-purple-500 animate-spin" />
+                    <span className="text-xs text-gray-400">AI is thinking...</span>
                   </div>
                 </div>
               </div>
@@ -212,7 +208,7 @@ const Chatbot = () => {
               />
               <button 
                 onClick={handleSend} 
-                disabled={!input.trim()} 
+                disabled={!input.trim() || isTyping} 
                 className="bg-purple-600 text-white p-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
               >
                 <Send className="w-4 h-4" />
@@ -238,6 +234,13 @@ const Chatbot = () => {
                 className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
               >
                 💵 Balance
+              </button>
+              <span className="text-gray-300">•</span>
+              <button 
+                onClick={() => setInput("What AI model are you using?")}
+                className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
+              >
+                🤖 About AI
               </button>
             </div>
           </div>
