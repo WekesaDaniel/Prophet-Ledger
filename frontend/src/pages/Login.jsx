@@ -159,7 +159,7 @@ const Login = () => {
             <img
               src="/logo512.png"
               alt="ProphetLedger Logo"
-              className="w-full h-full object-contain"
+              className="w-10 h-10 object-contain"
             />
           
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
