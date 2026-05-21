@@ -19,6 +19,81 @@ const Chatbot = () => {
   const [context, setContext] = useState(null);
   const messagesEndRef = useRef(null);
 
+  // Format message text with markdown-style formatting using Tailwind
+  const formatMessageText = (text) => {
+    if (!text) return '';
+    
+    let formattedText = text;
+    
+    // Format bold text: **text** to <strong class="font-bold text-purple-600">
+    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-purple-600">$1</strong>');
+    formattedText = formattedText.replace(/\*(.*?)\*/g, '<strong class="font-bold text-purple-600">$1</strong>');
+    
+    // Format bullet points: • item or - item or * item
+    const lines = formattedText.split('\n');
+    let inList = false;
+    let processedLines = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      
+      // Check for bullet points
+      if (line.match(/^[•\-\*]\s/)) {
+        if (!inList) {
+          processedLines.push('<ul class="list-disc list-inside space-y-1 my-2">');
+          inList = true;
+        }
+        processedLines.push(`<li class="text-sm text-gray-700">${line.substring(2)}</li>`);
+      } 
+      // Check for numbered lists
+      else if (line.match(/^\d+\.\s/)) {
+        if (!inList) {
+          processedLines.push('<ol class="list-decimal list-inside space-y-1 my-2">');
+          inList = true;
+        }
+        processedLines.push(`<li class="text-sm text-gray-700">${line}</li>`);
+      }
+      // Regular text
+      else {
+        if (inList) {
+          if (line.trim() === '') {
+            // Close list on empty line
+            if (processedLines[processedLines.length - 1]?.includes('</ul>') === false && 
+                processedLines[processedLines.length - 1]?.includes('</ol>') === false) {
+              processedLines.push(line.match(/^\d+\.\s/) ? '</ol>' : '</ul>');
+            }
+            inList = false;
+          } else {
+            processedLines.push(line);
+          }
+        } else {
+          processedLines.push(line);
+        }
+      }
+    }
+    
+    // Close any open list
+    if (inList) {
+      processedLines.push('</ul>');
+    }
+    
+    formattedText = processedLines.join('\n');
+    
+    // Convert line breaks to <br /> (but not inside lists)
+    formattedText = formattedText.replace(/\n/g, '<br />');
+    
+    // Clean up double <br /> tags
+    formattedText = formattedText.replace(/(<br \/>){2,}/g, '<br />');
+    
+    // Add emoji replacements
+    formattedText = formattedText.replace(/:\)/g, '😊');
+    formattedText = formattedText.replace(/:\(/g, '😢');
+    formattedText = formattedText.replace(/:D/g, '😃');
+    formattedText = formattedText.replace(/<3/g, '❤️');
+    
+    return formattedText;
+  };
+
   // Get current page context
   useEffect(() => {
     const currentPath = window.location.pathname;
@@ -81,7 +156,6 @@ const Chatbot = () => {
     setIsTyping(true);
 
     try {
-      // Call the Groq-powered backend API
       const response = await sendChatMessage(input);
       
       const botMessage = { 
@@ -107,6 +181,34 @@ const Chatbot = () => {
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') handleSend();
+  };
+
+  // Render message with HTML formatting using Tailwind classes
+  const renderMessage = (msg) => {
+    const formattedHtml = formatMessageText(msg.text);
+    
+    return (
+      <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <div className={`flex items-start space-x-2 max-w-[85%] ${msg.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${msg.sender === 'user' ? 'bg-blue-500' : 'bg-purple-500'}`}>
+            {msg.sender === 'user' ? <User className="w-3 h-3 text-white" /> : <Bot className="w-3 h-3 text-white" />}
+          </div>
+          <div className={`p-3 rounded-lg ${msg.sender === 'user' ? 'bg-blue-500 text-white' : 'bg-white border shadow-sm'}`}>
+            {msg.sender === 'user' ? (
+              <p className="text-sm whitespace-pre-wrap break-words">{msg.text}</p>
+            ) : (
+              <div 
+                className="text-sm prose prose-sm max-w-none prose-p:my-1 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-purple-600 prose-strong:font-bold"
+                dangerouslySetInnerHTML={{ __html: formattedHtml }}
+              />
+            )}
+            <p className="text-xs opacity-70 mt-1">
+              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (!isOpen) {
@@ -167,25 +269,11 @@ const Chatbot = () => {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`flex items-start space-x-2 max-w-[85%] ${msg.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${msg.sender === 'user' ? 'bg-blue-500' : 'bg-purple-500'}`}>
-                    {msg.sender === 'user' ? <User className="w-3 h-3 text-white" /> : <Bot className="w-3 h-3 text-white" />}
-                  </div>
-                  <div className={`p-3 rounded-lg ${msg.sender === 'user' ? 'bg-blue-500 text-white' : 'bg-white border shadow-sm'}`}>
-                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                    <p className="text-xs opacity-70 mt-1">
-                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
+            {messages.map((msg) => renderMessage(msg))}
             {isTyping && (
               <div className="flex justify-start">
                 <div className="bg-white border shadow-sm p-3 rounded-lg">
-                  <div className="flex space-x-1">
+                  <div className="flex space-x-1 items-center">
                     <Loader className="w-4 h-4 text-purple-500 animate-spin" />
                     <span className="text-xs text-gray-400">AI is thinking...</span>
                   </div>
