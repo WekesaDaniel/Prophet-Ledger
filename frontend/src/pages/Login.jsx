@@ -157,7 +157,7 @@ const Login = () => {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         <div className="text-center mb-8">
             <img
-              src="/logo512.p"
+              src="/logo512.png"
               alt="ProphetLedger Logo"
               className="w-full h-full object-contain"
             />
