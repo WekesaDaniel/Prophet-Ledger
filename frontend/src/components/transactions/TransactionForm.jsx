@@ -1,6 +1,8 @@
 // frontend/src/components/transactions/TransactionForm.jsx
 import React, { useState } from 'react';
 import { Plus, DollarSign, Calendar, Tag, X, Loader } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 const CATEGORIES = [
@@ -9,6 +11,7 @@ const CATEGORIES = [
 ];
 
 const TransactionForm = ({ onTransactionAdded, floating = true }) => {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState({
     amount: '',
@@ -29,10 +32,31 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!user?.id) {
+      toast.error('Please login to add transactions');
+      return;
+    }
+
     setLoading(true);
     
-    setTimeout(() => {
-      console.log('Transaction added:', formData);
+    try {
+      const transactionData = {
+        user_id: user.id,
+        amount: parseFloat(formData.amount),
+        description: formData.description,
+        category: formData.category.toLowerCase(),
+        type: formData.type,
+        date: formData.date,
+        vendor: formData.vendor || null
+      };
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert([transactionData])
+        .select();
+
+      if (error) throw error;
+      
       toast.success('Transaction added successfully!');
       setFormData({
         amount: '',
@@ -43,9 +67,13 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
         vendor: ''
       });
       setIsOpen(false);
-      setLoading(false);
       if (onTransactionAdded) onTransactionAdded();
-    }, 500);
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+      toast.error(error.message || 'Failed to add transaction');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const FormContent = () => (

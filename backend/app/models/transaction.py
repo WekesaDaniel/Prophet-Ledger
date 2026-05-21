@@ -1,4 +1,5 @@
-﻿from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum
+﻿# backend/app/models/transaction.py
+from sqlalchemy import Column, Integer, Float, String, Date, DateTime, ForeignKey, Enum
 from sqlalchemy.sql import func
 from app.database import Base
 import enum
@@ -16,6 +17,7 @@ class TransactionCategory(str, enum.Enum):
     SHOPPING = "shopping"
     HEALTH = "health"
     RENT = "rent"
+    INCOME = "income"
     OTHER = "other"
 
 class Transaction(Base):
@@ -27,6 +29,7 @@ class Transaction(Base):
     description = Column(String)
     category = Column(Enum(TransactionCategory), default=TransactionCategory.OTHER)
     type = Column(Enum(TransactionType), nullable=False)
-    date = Column(DateTime(timezone=True), server_default=func.now())
+    date = Column(Date, nullable=False)
     vendor = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

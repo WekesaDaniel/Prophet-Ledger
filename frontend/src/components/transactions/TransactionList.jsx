@@ -1,18 +1,14 @@
 // frontend/src/components/transactions/TransactionList.jsx
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Eye, Edit, Trash2, Download } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Eye, Edit, Trash2, Download, Loader } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
+import { useMode } from '../../contexts/ModeContext';
+import toast from 'react-hot-toast';
 
-// Make sure this function is defined or imported
-const formatCurrency = (amount) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(amount);
-};
-
-const TransactionList = ({ limit = null }) => {
+const TransactionList = ({ limit = null, onTransactionDeleted }) => {
+  const { user } = useAuth();
+  const { formatCurrency } = useMode();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,24 +16,77 @@ const TransactionList = ({ limit = null }) => {
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [deleting, setDeleting] = useState(null);
 
-  const mockTransactions = [
-    { id: 1, date: '2024-05-15', description: 'Starbucks Coffee', amount: 5.75, category: 'Dining', type: 'expense', vendor: 'Starbucks' },
-    { id: 2, date: '2024-05-14', description: 'Salary Deposit', amount: 5000.00, category: 'Income', type: 'income', vendor: 'Employer Inc.' },
-    { id: 3, date: '2024-05-13', description: 'Amazon Purchase', amount: 124.99, category: 'Shopping', type: 'expense', vendor: 'Amazon' },
-    { id: 4, date: '2024-05-12', description: 'Uber Ride', amount: 24.50, category: 'Transport', type: 'expense', vendor: 'Uber' },
-    { id: 5, date: '2024-05-11', description: 'Netflix Subscription', amount: 15.99, category: 'Entertainment', type: 'expense', vendor: 'Netflix' },
-  ];
+  const categories = ['all', 'Groceries', 'Dining', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 'Health', 'Rent', 'Income', 'Other'];
+
+  // Fetch transactions from Supabase
+  const fetchTransactions = async () => {
+    if (!user?.id) return;
+    
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      
+      // Transform data to match frontend format
+      const formattedData = data.map(t => ({
+        id: t.id,
+        date: t.date.split('T')[0],
+        description: t.description,
+        amount: t.amount,
+        category: t.category?.charAt(0).toUpperCase() + t.category?.slice(1) || 'Other',
+        type: t.type,
+        vendor: t.vendor || ''
+      }));
+      
+      setTransactions(formattedData);
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      toast.error('Failed to load transactions');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setTimeout(() => {
-      setTransactions(mockTransactions);
-      setLoading(false);
-    }, 500);
-  }, []);
+    fetchTransactions();
+  }, [user?.id]);
 
-  const categories = ['all', ...new Set(transactions.map(t => t.category))];
-  const types = ['all', 'income', 'expense'];
+  const handleDelete = async (id) => {
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+    
+    setDeleting(id);
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      toast.success('Transaction deleted successfully');
+      fetchTransactions();
+      if (onTransactionDeleted) onTransactionDeleted();
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      toast.error('Failed to delete transaction');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleEdit = (transaction) => {
+    // This will be implemented with a modal
+    console.log('Edit transaction:', transaction);
+    toast.info('Edit feature coming soon');
+  };
 
   const filteredTransactions = transactions
     .filter(t => {
@@ -56,8 +105,8 @@ const TransactionList = ({ limit = null }) => {
         aVal = a.amount;
         bVal = b.amount;
       } else {
-        aVal = a.description;
-        bVal = b.description;
+        aVal = a.description.toLowerCase();
+        bVal = b.description.toLowerCase();
       }
       if (sortOrder === 'asc') {
         return aVal > bVal ? 1 : -1;
@@ -71,13 +120,17 @@ const TransactionList = ({ limit = null }) => {
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-10 bg-gray-200 rounded w-1/3"></div>
-          <div className="space-y-2">
-            <div className="h-12 bg-gray-100 rounded"></div>
-            <div className="h-12 bg-gray-100 rounded"></div>
-          </div>
+        <div className="flex justify-center items-center h-40">
+          <Loader className="w-8 h-8 animate-spin text-purple-600" />
         </div>
+      </div>
+    );
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-12 text-center">
+        <p className="text-gray-500">No transactions yet. Add your first transaction!</p>
       </div>
     );
   }
@@ -114,9 +167,9 @@ const TransactionList = ({ limit = null }) => {
             onChange={(e) => setFilterType(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           >
-            {types.map(type => (
-              <option key={type} value={type}>{type === 'all' ? 'All Types' : type === 'income' ? 'Income Only' : 'Expenses Only'}</option>
-            ))}
+            <option value="all">All Types</option>
+            <option value="income">Income Only</option>
+            <option value="expense">Expenses Only</option>
           </select>
 
           <select
@@ -146,6 +199,7 @@ const TransactionList = ({ limit = null }) => {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -155,16 +209,42 @@ const TransactionList = ({ limit = null }) => {
                 <td className="px-4 py-3">
                   <div>
                     <p className="text-sm font-medium text-gray-900">{transaction.description}</p>
-                    <p className="text-xs text-gray-500">{transaction.vendor}</p>
+                    {transaction.vendor && <p className="text-xs text-gray-500">{transaction.vendor}</p>}
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${transaction.category === 'Income' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                  <span className={`px-2 py-1 text-xs rounded-full ${
+                    transaction.category === 'Income' ? 'bg-green-100 text-green-800' : 
+                    'bg-gray-100 text-gray-800'
+                  }`}>
                     {transaction.category}
                   </span>
                 </td>
-                <td className={`px-4 py-3 text-right text-sm font-medium ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                <td className={`px-4 py-3 text-right text-sm font-medium ${
+                  transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                }`}>
                   {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <div className="flex items-center justify-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(transaction)}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(transaction.id)}
+                      disabled={deleting === transaction.id}
+                      className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                    >
+                      {deleting === transaction.id ? (
+                        <Loader className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
