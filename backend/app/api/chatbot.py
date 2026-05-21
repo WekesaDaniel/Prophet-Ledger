@@ -1,7 +1,7 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+﻿# backend/app/api/chatbot.py
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
@@ -24,10 +24,7 @@ def chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Process natural language query
-    🔴 HARDCODED - Replace with actual NLP model integration
-    """
+    """Process natural language query using Groq API"""
     engine = ChatbotEngine(db)
     result = engine.process_query(current_user.id, request.query)
     return result
@@ -38,10 +35,7 @@ def classify_transaction(
     amount: float,
     db: Session = Depends(get_db)
 ):
-    """
-    Classify transaction into category
-    Used by DSS for intelligent categorization
-    """
+    """Classify transaction into category using Groq"""
     engine = ChatbotEngine(db)
     classification = engine.classify_transaction(description, amount)
     return classification
@@ -57,6 +51,7 @@ def get_chat_suggestions(
             "What is my current balance?",
             "Show me unusual transactions",
             "Forecast my spending for next month",
-            "How am I doing on my budget?"
+            "How am I doing on my budget?",
+            "What AI model are you using?"
         ]
     }
