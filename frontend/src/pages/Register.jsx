@@ -146,13 +146,12 @@ const Register = () => {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-12 h-12 flex items-center justify-center">
             <img
               src="/logo512.png"
               alt="ProphetLedger Logo"
               className="w-20 h-20 object-contain mx-auto"
             />
-          </div>
+        
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             ProphetLedger
           </h1>

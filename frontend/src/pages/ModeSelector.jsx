@@ -73,13 +73,12 @@ const ModeSelector = () => {
       <div className="max-w-6xl w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-12 h-12 flex items-center justify-center">
             <img
               src="/logo512.png"
               alt="ProphetLedger Logo"
               className="w-20 h-20 object-contain mx-auto"
             />
-          </div>
+          
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             Welcome to ProphetLedger
           </h1>
