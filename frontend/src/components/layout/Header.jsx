@@ -66,7 +66,11 @@ const Header = () => {
               {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <Link to="/dashboard" className="flex items-center space-x-2">
-              <img src={logo} alt="ProphetLedger Logo" />
+              <img
+                src="/logo512.png"
+                alt="Logo"
+                className="w-8 h-8 object-contain"
+              />
               <span className="font-bold text-xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 ProphetLedger
               </span>

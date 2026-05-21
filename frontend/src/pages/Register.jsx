@@ -3,8 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader, Mail, Lock, User, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react';
 
-const logo = "/favicon.ico";
-
 
 
 const Register = () => {
@@ -148,7 +146,13 @@ const Register = () => {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         {/* Logo */}
         <div className="text-center mb-8">
-          <img src={logo} alt="ProphetLedger Logo" />
+          <div className="w-12 h-12 flex items-center justify-center">
+            <img
+              src="/logo512.png"
+              alt="ProphetLedger Logo"
+              className="w-full h-full object-contain"
+            />
+          </div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             ProphetLedger
           </h1>
