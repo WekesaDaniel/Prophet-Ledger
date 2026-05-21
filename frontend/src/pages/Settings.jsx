@@ -1,13 +1,15 @@
 // frontend/src/pages/Settings.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMode } from '../contexts/ModeContext';
 import { supabase } from '../services/supabaseClient';
-import { User, Bell, Shield, DollarSign, Moon, Sun, Globe, Save, Loader } from 'lucide-react';
+import { User, Bell, Shield, DollarSign, Moon, Sun, Globe, Save, Loader, Key, Trash2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const Settings = () => {
-  const { user, updateUser } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const { mode, currency, setCurrency, formatCurrency } = useMode();
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
@@ -17,6 +19,18 @@ const Settings = () => {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Password change states
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  
+  // Delete account states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const currencies = [
     { code: 'USD', symbol: '$', name: 'US Dollar' },
@@ -46,7 +60,7 @@ const Settings = () => {
           .eq('user_id', user.id)
           .single();
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 means no rows returned
+        if (error && error.code !== 'PGRST116') {
           console.error('Error loading settings:', error);
         }
 
@@ -60,6 +74,8 @@ const Settings = () => {
           // Apply dark mode if enabled
           if (data.dark_mode) {
             document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
           }
         }
       } catch (error) {
@@ -89,7 +105,6 @@ const Settings = () => {
         
         if (updateError) throw updateError;
         
-        // Update local user state
         if (updateUser) {
           await updateUser({ full_name: fullName });
         }
@@ -129,6 +144,77 @@ const Settings = () => {
       toast.error(error.message || 'Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    
+    setPasswordLoading(true);
+    
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      
+      if (error) throw error;
+      
+      toast.success('Password changed successfully!');
+      setShowPasswordModal(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      console.error('Password change error:', error);
+      toast.error(error.message || 'Failed to change password');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm account deletion');
+      return;
+    }
+    
+    setDeleteLoading(true);
+    
+    try {
+      // First, delete user data from custom tables
+      await supabase.from('user_settings').delete().eq('user_id', user.id);
+      await supabase.from('transactions').delete().eq('user_id', user.id);
+      await supabase.from('invoices').delete().eq('user_id', user.id);
+      await supabase.from('forecasts').delete().eq('user_id', user.id);
+      await supabase.from('anomalies').delete().eq('user_id', user.id);
+      
+      // Then delete the user from Supabase Auth
+      const { error } = await supabase.auth.admin.deleteUser(user.id);
+      
+      // Note: Admin API requires service role key
+      // Alternative: Call a backend endpoint to delete user
+      
+      if (error) throw error;
+      
+      toast.success('Account deleted successfully');
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      toast.error(error.message || 'Failed to delete account. Please contact support.');
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -218,7 +304,14 @@ const Settings = () => {
                   <span className="text-sm text-gray-700 dark:text-gray-300">Dark Mode</span>
                 </div>
                 <button
-                  onClick={() => setDarkMode(!darkMode)}
+                  onClick={() => {
+                    setDarkMode(!darkMode);
+                    if (!darkMode) {
+                      document.documentElement.classList.add('dark');
+                    } else {
+                      document.documentElement.classList.remove('dark');
+                    }
+                  }}
                   className={`w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
                 >
                   <div className={`w-5 h-5 rounded-full bg-white transform transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-0.5'}`} />
@@ -271,13 +364,18 @@ const Settings = () => {
               Security
             </h2>
             <div className="space-y-3">
-              <button className="w-full text-left text-sm text-blue-600 dark:text-blue-400 py-2 border-b dark:border-gray-700">
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="w-full text-left text-sm text-blue-600 dark:text-blue-400 py-2 border-b dark:border-gray-700 flex items-center"
+              >
+                <Key className="w-4 h-4 mr-2" />
                 Change Password
               </button>
-              <button className="w-full text-left text-sm text-blue-600 dark:text-blue-400 py-2 border-b dark:border-gray-700">
-                Two-Factor Authentication
-              </button>
-              <button className="w-full text-left text-sm text-red-600 dark:text-red-400 py-2">
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="w-full text-left text-sm text-red-600 dark:text-red-400 py-2 flex items-center"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
                 Delete Account
               </button>
             </div>
@@ -300,6 +398,117 @@ const Settings = () => {
           </div>
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Change Password</h2>
+              <button onClick={() => setShowPasswordModal(false)} className="text-gray-500 hover:text-gray-700">
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg"
+                />
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {passwordLoading ? 'Changing...' : 'Change Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Account Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-red-600">Delete Account</h2>
+              <button onClick={() => setShowDeleteModal(false)} className="text-gray-500 hover:text-gray-700">
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700 dark:text-red-400">
+                  This action cannot be undone. All your data, transactions, invoices, and settings will be permanently deleted.
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Type <span className="font-mono bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded">DELETE</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg"
+                />
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={deleteLoading || deleteConfirmText !== 'DELETE'}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deleteLoading ? 'Deleting...' : 'Permanently Delete Account'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
