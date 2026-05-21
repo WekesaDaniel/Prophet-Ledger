@@ -5,6 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { Loader, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
+const logo = "/favicon.ico";
+
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -155,7 +157,7 @@ const Login = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         <div className="text-center mb-8">
-          <div className="text-5xl mb-3">🔮</div>
+          <img src={logo} alt="ProphetLedger Logo" />
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             ProphetLedger
           </h1>

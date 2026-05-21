@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import AlertCenter from '../dashboard/AlertCenter';
 
+const logo = "/favicon.ico";
+
 const Header = () => {
   const { user, logout } = useAuth();
   const { mode } = useMode();
@@ -64,7 +66,7 @@ const Header = () => {
               {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <Link to="/dashboard" className="flex items-center space-x-2">
-              <span className="text-2xl">🔮</span>
+              <img src={logo} alt="ProphetLedger Logo" />
               <span className="font-bold text-xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 ProphetLedger
               </span>

@@ -71,10 +71,6 @@ const Dashboard = () => {
       </div>
       
       <div className="px-4 py-6 lg:px-8">
-        {/* Alert Center */}
-        <div className="mb-6">
-          <AlertCenter />
-        </div>
 
         {/* KPI Grid */}
         <div className="mb-8">
