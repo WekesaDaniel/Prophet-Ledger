@@ -150,7 +150,7 @@ const Register = () => {
             <img
               src="/logo512.png"
               alt="ProphetLedger Logo"
-              className="w-10 h-10 object-contain"
+              className="w-20 h-20 object-contain mx-auto"
             />
           </div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
