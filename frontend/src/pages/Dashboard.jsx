@@ -98,7 +98,13 @@ const Dashboard = () => {
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-gray-400">
           <p>Last updated: {new Date().toLocaleString()}</p>
-          <p className="mt-1">🔮 ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
+          <img
+              src="/logo512.png"
+              alt="ProphetLedger Logo"
+              className="w-20 h-20 object-contain mx-auto"
+            />
+
+          <p className="mt-1"> ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
         </div>
       </div>
     </>
