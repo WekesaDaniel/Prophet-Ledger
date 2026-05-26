@@ -28,6 +28,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
   });
   const [loading, setLoading] = useState(false);
   const amountInputRef = useRef(null);
+  const descriptionInputRef = useRef(null);
 
   // Focus amount input when modal opens
   useEffect(() => {
@@ -38,6 +39,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+    // Use functional update to prevent race conditions
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -46,7 +48,6 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
 
   const handleTypeChange = (type) => {
     setTransactionType(type);
-    // Reset category based on type
     setFormData(prev => ({
       ...prev,
       type: type,
@@ -61,7 +62,8 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
       return;
     }
 
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+    const amountNum = parseFloat(formData.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
       toast.error('Please enter a valid amount');
       return;
     }
@@ -76,7 +78,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
     try {
       const transactionData = {
         user_id: user.id,
-        amount: parseFloat(formData.amount),
+        amount: amountNum,
         description: formData.description.trim(),
         category: formData.category.toLowerCase(),
         type: formData.type,
@@ -84,10 +86,9 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
         vendor: formData.vendor?.trim() || null
       };
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('transactions')
-        .insert([transactionData])
-        .select();
+        .insert([transactionData]);
 
       if (error) throw error;
       
@@ -125,7 +126,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
   };
 
   const FormContent = () => (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
       {/* Transaction Type Toggle */}
       <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
         <button
@@ -174,6 +175,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
         <input
+          ref={descriptionInputRef}
           type="text"
           name="description"
           value={formData.description}
