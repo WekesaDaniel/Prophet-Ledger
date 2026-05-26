@@ -18,58 +18,65 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [transactionType, setTransactionType] = useState('expense');
-  const [formData, setFormData] = useState({
-    amount: '',
-    description: '',
-    category: 'Groceries',
-    type: 'expense',
-    date: new Date().toISOString().split('T')[0],
-    vendor: ''
-  });
   const [loading, setLoading] = useState(false);
-  const amountInputRef = useRef(null);
-  const descriptionInputRef = useRef(null);
+  
+  // Use refs for form inputs to avoid re-renders
+  const amountRef = useRef(null);
+  const descriptionRef = useRef(null);
+  const vendorRef = useRef(null);
+  const categoryRef = useRef(null);
+  const dateRef = useRef(null);
 
   // Focus amount input when modal opens
   useEffect(() => {
-    if (isOpen && amountInputRef.current) {
-      setTimeout(() => amountInputRef.current?.focus(), 100);
+    if (isOpen && amountRef.current) {
+      setTimeout(() => amountRef.current?.focus(), 100);
     }
   }, [isOpen]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    // Use functional update to prevent race conditions
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
   const handleTypeChange = (type) => {
     setTransactionType(type);
-    setFormData(prev => ({
-      ...prev,
-      type: type,
-      category: type === 'expense' ? 'Groceries' : 'Salary'
-    }));
+  };
+
+  const getFormData = () => {
+    return {
+      amount: amountRef.current?.value || '',
+      description: descriptionRef.current?.value || '',
+      vendor: vendorRef.current?.value || '',
+      category: categoryRef.current?.value || (transactionType === 'expense' ? 'Groceries' : 'Salary'),
+      type: transactionType,
+      date: dateRef.current?.value || new Date().toISOString().split('T')[0]
+    };
+  };
+
+  const resetForm = () => {
+    if (amountRef.current) amountRef.current.value = '';
+    if (descriptionRef.current) descriptionRef.current.value = '';
+    if (vendorRef.current) vendorRef.current.value = '';
+    if (categoryRef.current) categoryRef.current.value = transactionType === 'expense' ? 'Groceries' : 'Salary';
+    if (dateRef.current) dateRef.current.value = new Date().toISOString().split('T')[0];
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     if (!user?.id) {
       toast.error('Please login to add transactions');
       return;
     }
 
+    const formData = getFormData();
     const amountNum = parseFloat(formData.amount);
+    
     if (isNaN(amountNum) || amountNum <= 0) {
       toast.error('Please enter a valid amount');
+      amountRef.current?.focus();
       return;
     }
 
     if (!formData.description.trim()) {
       toast.error('Please enter a description');
+      descriptionRef.current?.focus();
       return;
     }
 
@@ -93,16 +100,7 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
       if (error) throw error;
       
       toast.success('Transaction added successfully!');
-      
-      // Reset form
-      setFormData({
-        amount: '',
-        description: '',
-        category: transactionType === 'expense' ? 'Groceries' : 'Salary',
-        type: transactionType,
-        date: new Date().toISOString().split('T')[0],
-        vendor: ''
-      });
+      resetForm();
       setIsOpen(false);
       if (onTransactionAdded) onTransactionAdded();
     } catch (error) {
@@ -114,15 +112,8 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
   };
 
   const resetAndClose = () => {
+    resetForm();
     setIsOpen(false);
-    setFormData({
-      amount: '',
-      description: '',
-      category: transactionType === 'expense' ? 'Groceries' : 'Salary',
-      type: transactionType,
-      date: new Date().toISOString().split('T')[0],
-      vendor: ''
-    });
   };
 
   const FormContent = () => (
@@ -157,16 +148,15 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
         <div className="relative">
           <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
-            ref={amountInputRef}
+            ref={amountRef}
             type="number"
             name="amount"
-            value={formData.amount}
-            onChange={handleChange}
             step="0.01"
             min="0.01"
             required
             className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             placeholder="0.00"
+            defaultValue=""
           />
         </div>
       </div>
@@ -175,14 +165,13 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
         <input
-          ref={descriptionInputRef}
+          ref={descriptionRef}
           type="text"
           name="description"
-          value={formData.description}
-          onChange={handleChange}
           required
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           placeholder={transactionType === 'expense' ? "Coffee shop, Groceries, etc." : "Salary, Freelance payment, etc."}
+          defaultValue=""
         />
       </div>
 
@@ -190,12 +179,12 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Vendor/Store (Optional)</label>
         <input
+          ref={vendorRef}
           type="text"
           name="vendor"
-          value={formData.vendor}
-          onChange={handleChange}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           placeholder="Starbucks, Amazon, Employer, etc."
+          defaultValue=""
         />
       </div>
 
@@ -205,10 +194,10 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
         <div className="relative">
           <Tag className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
           <select
+            ref={categoryRef}
             name="category"
-            value={formData.category}
-            onChange={handleChange}
             className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none appearance-none bg-white"
+            defaultValue={transactionType === 'expense' ? 'Groceries' : 'Salary'}
           >
             {(transactionType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map(cat => (
               <option key={cat} value={cat}>{cat}</option>
@@ -223,12 +212,12 @@ const TransactionForm = ({ onTransactionAdded, floating = true }) => {
         <div className="relative">
           <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
+            ref={dateRef}
             type="date"
             name="date"
-            value={formData.date}
-            onChange={handleChange}
             required
             className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            defaultValue={new Date().toISOString().split('T')[0]}
           />
         </div>
       </div>
