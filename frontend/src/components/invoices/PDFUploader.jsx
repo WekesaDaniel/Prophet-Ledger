@@ -2,11 +2,33 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Loader, CheckCircle, XCircle } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 const PDFUploader = ({ onUploadComplete }) => {
+  const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null);
+
+  // Function to extract text from PDF using a service
+  const extractPdfData = async (file) => {
+    // Using PDF.js or a backend service for extraction
+    // For now, we'll send to backend for processing
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/extract', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) throw new Error('Extraction failed');
+    return response.json();
+  };
 
   const onDrop = useCallback(async (acceptedFiles) => {
     const file = acceptedFiles[0];
@@ -15,55 +37,71 @@ const PDFUploader = ({ onUploadComplete }) => {
       return;
     }
 
+    if (!user?.id) {
+      toast.error('Please login to upload invoices');
+      return;
+    }
+
     setUploading(true);
     setUploadStatus('uploading');
 
-    // 🔴 HARDCODED - Simulate PDF scanning
-    setTimeout(() => {
-      // 🔴 HARDCODED EXTRACTED DATA - Replace with actual API response
-      const extractedData = {
-        vendor: 'Starbucks Coffee',
-        total: 12.50,
-        tax: 0.75,
-        date: new Date().toISOString().split('T')[0],
-        invoiceNumber: 'INV-2024-001',
-        lineItems: [
-          { description: 'Latte', quantity: 2, price: 5.00, total: 10.00 },
-          { description: 'Croissant', quantity: 1, price: 2.50, total: 2.50 }
-        ]
-      };
+    try {
+      // 1. Upload file to Supabase Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const filePath = fileName;
+
+      const { error: uploadError } = await supabase.storage
+        .from('invoices')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('invoices')
+        .getPublicUrl(filePath);
+
+      // 2. Extract data from PDF (using a simple regex approach first)
+      // For production, use a proper PDF parsing library or backend service
+      const extractedData = await extractPdfData(file);
       
-      console.log('📄 Extracted data:', extractedData);
+      // 3. Save invoice record to Supabase
+      const invoiceData = {
+        user_id: user.id,
+        vendor: extractedData.vendor || 'Unknown',
+        total_amount: extractedData.total || 0,
+        tax: extractedData.tax || 0,
+        date: extractedData.date || new Date().toISOString().split('T')[0],
+        pdf_url: publicUrl,
+        invoice_number: extractedData.invoiceNumber || `INV-${Date.now()}`,
+        extracted_data: extractedData,
+        status: 'pending'
+      };
+
+      const { data: savedInvoice, error: dbError } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+
       setUploadStatus('success');
-      toast.success('Invoice scanned successfully!');
+      toast.success('Invoice scanned and saved successfully!');
       
       if (onUploadComplete) {
-        onUploadComplete(extractedData);
+        onUploadComplete(savedInvoice);
       }
+    } catch (error) {
+      console.error('Error processing invoice:', error);
+      setUploadStatus('error');
+      toast.error(error.message || 'Failed to process invoice');
+    } finally {
       setUploading(false);
-      
-      // Clear status after 3 seconds
       setTimeout(() => setUploadStatus(null), 3000);
-    }, 2000);
-    
-    // ✅ TO DO: Replace with actual API call
-    // const formData = new FormData();
-    // formData.append('file', file);
-    // try {
-    //   const response = await api.post('/invoices/scan', formData, {
-    //     headers: { 'Content-Type': 'multipart/form-data' }
-    //   });
-    //   setUploadStatus('success');
-    //   toast.success('Invoice scanned successfully!');
-    //   if (onUploadComplete) onUploadComplete(response.data);
-    // } catch (error) {
-    //   setUploadStatus('error');
-    //   toast.error('Failed to scan invoice');
-    // } finally {
-    //   setUploading(false);
-    //   setTimeout(() => setUploadStatus(null), 3000);
-    // }
-  }, [onUploadComplete]);
+    }
+  }, [user?.id, onUploadComplete]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
