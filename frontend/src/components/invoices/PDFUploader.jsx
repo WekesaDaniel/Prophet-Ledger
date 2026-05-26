@@ -19,6 +19,9 @@ const SUPPORTED_FILE_TYPES = {
   'application/vnd.ms-excel': { icon: File, label: 'Excel', needsOcr: false }
 };
 
+// List of accepted MIME types for dropzone
+const ACCEPTED_MIME_TYPES = Object.keys(SUPPORTED_FILE_TYPES);
+
 const PDFUploader = ({ onUploadComplete }) => {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
@@ -43,7 +46,6 @@ const PDFUploader = ({ onUploadComplete }) => {
           await worker.loadLanguage('eng');
           await worker.initialize('eng');
           
-          // Convert file to base64 or use file directly
           const { data: { text } } = await worker.recognize(file);
           await worker.terminate();
           resolve(text);
@@ -55,7 +57,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     });
   };
 
-  // Extract text from PDF using a simple approach (send to backend)
+  // Extract text from PDF using backend
   const extractTextFromPdf = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -70,6 +72,26 @@ const PDFUploader = ({ onUploadComplete }) => {
     
     if (!response.ok) {
       throw new Error('PDF extraction failed');
+    }
+    const data = await response.json();
+    return data.text;
+  };
+
+  // Extract text from Word/Excel using backend
+  const extractTextFromDocument = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/extract-text', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      throw new Error('Document extraction failed');
     }
     const data = await response.json();
     return data.text;
@@ -96,8 +118,21 @@ const PDFUploader = ({ onUploadComplete }) => {
     return response.json();
   };
 
-  const onDrop = useCallback(async (acceptedFiles) => {
+  const onDrop = useCallback(async (acceptedFiles, fileRejections) => {
+    // Handle file rejection
+    if (fileRejections && fileRejections.length > 0) {
+      const rejection = fileRejections[0];
+      if (rejection.errors[0].code === 'file-invalid-type') {
+        toast.error(`Unsupported file type. Please upload PDF, JPEG, PNG, Word (.docx), or Excel (.xlsx) files.`);
+      } else {
+        toast.error(rejection.errors[0].message || 'File upload failed');
+      }
+      return;
+    }
+
     const file = acceptedFiles[0];
+    if (!file) return;
+
     const fileType = file.type;
     const fileSupport = SUPPORTED_FILE_TYPES[fileType];
     
@@ -126,30 +161,21 @@ const PDFUploader = ({ onUploadComplete }) => {
       // Step 1: Extract text based on file type
       if (fileSupport.needsOcr) {
         // Use client-side tesseract.js for images
-        toast.info('Running OCR on image... This may take a moment.');
+        toast.loading('Running OCR on image... This may take a moment.', { id: 'ocr' });
         extractedText = await extractTextFromImage(file);
+        toast.dismiss('ocr');
         if (!extractedText || extractedText.trim().length < 10) {
           throw new Error('Could not extract sufficient text from image. Please try a clearer image.');
         }
       } else if (fileType === 'application/pdf') {
-        // Send PDF to backend for text extraction
-        toast.info('Extracting text from PDF...');
+        toast.loading('Extracting text from PDF...', { id: 'pdf' });
         extractedText = await extractTextFromPdf(file);
+        toast.dismiss('pdf');
       } else {
-        // For Word/Excel, send to backend
-        toast.info('Processing document...');
-        const formData = new FormData();
-        formData.append('file', file);
-        const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/extract-text', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: formData
-        });
-        if (!response.ok) throw new Error('Document extraction failed');
-        const data = await response.json();
-        extractedText = data.text;
+        // For Word/Excel
+        toast.loading('Processing document...', { id: 'doc' });
+        extractedText = await extractTextFromDocument(file);
+        toast.dismiss('doc');
       }
       
       // Step 2: Upload file to Supabase Storage
@@ -211,8 +237,9 @@ const PDFUploader = ({ onUploadComplete }) => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: SUPPORTED_FILE_TYPES,
-    maxFiles: 1
+    accept: ACCEPTED_MIME_TYPES,
+    maxFiles: 1,
+    multiple: false
   });
 
   return (
