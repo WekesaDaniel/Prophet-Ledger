@@ -8,19 +8,29 @@ import toast from 'react-hot-toast';
 import { createWorker } from 'tesseract.js';
 
 const SUPPORTED_FILE_TYPES = {
-  'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false },
-  'image/jpeg': { icon: Image, label: 'JPEG', needsOcr: true },
-  'image/png': { icon: Image, label: 'PNG', needsOcr: true },
-  'image/heic': { icon: Image, label: 'HEIC', needsOcr: true },
-  'image/heif': { icon: Image, label: 'HEIF', needsOcr: true },
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { icon: File, label: 'Word', needsOcr: false },
-  'application/msword': { icon: File, label: 'Word', needsOcr: false },
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { icon: File, label: 'Excel', needsOcr: false },
-  'application/vnd.ms-excel': { icon: File, label: 'Excel', needsOcr: false }
+  'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false, extensions: ['.pdf'] },
+  'image/jpeg': { icon: Image, label: 'JPEG', needsOcr: true, extensions: ['.jpg', '.jpeg'] },
+  'image/png': { icon: Image, label: 'PNG', needsOcr: true, extensions: ['.png'] },
+  'image/heic': { icon: Image, label: 'HEIC', needsOcr: true, extensions: ['.heic'] },
+  'image/heif': { icon: Image, label: 'HEIF', needsOcr: true, extensions: ['.heif'] },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { icon: File, label: 'Word', needsOcr: false, extensions: ['.docx'] },
+  'application/msword': { icon: File, label: 'Word', needsOcr: false, extensions: ['.doc'] },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { icon: File, label: 'Excel', needsOcr: false, extensions: ['.xlsx'] },
+  'application/vnd.ms-excel': { icon: File, label: 'Excel', needsOcr: false, extensions: ['.xls'] }
 };
 
-// List of accepted MIME types for dropzone
-const ACCEPTED_MIME_TYPES = Object.keys(SUPPORTED_FILE_TYPES);
+// Build accept object for react-dropzone (MIME type -> extensions)
+const ACCEPT_OBJECT = {
+  'application/pdf': ['.pdf'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/heic': ['.heic'],
+  'image/heif': ['.heif'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/msword': ['.doc'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.ms-excel': ['.xls']
+};
 
 const PDFUploader = ({ onUploadComplete }) => {
   const { user } = useAuth();
@@ -45,7 +55,6 @@ const PDFUploader = ({ onUploadComplete }) => {
           await worker.load();
           await worker.loadLanguage('eng');
           await worker.initialize('eng');
-          
           const { data: { text } } = await worker.recognize(file);
           await worker.terminate();
           resolve(text);
@@ -71,7 +80,8 @@ const PDFUploader = ({ onUploadComplete }) => {
     });
     
     if (!response.ok) {
-      throw new Error('PDF extraction failed');
+      const error = await response.json();
+      throw new Error(error.detail || 'PDF extraction failed');
     }
     const data = await response.json();
     return data.text;
@@ -91,7 +101,8 @@ const PDFUploader = ({ onUploadComplete }) => {
     });
     
     if (!response.ok) {
-      throw new Error('Document extraction failed');
+      const error = await response.json();
+      throw new Error(error.detail || 'Document extraction failed');
     }
     const data = await response.json();
     return data.text;
@@ -134,10 +145,33 @@ const PDFUploader = ({ onUploadComplete }) => {
     if (!file) return;
 
     const fileType = file.type;
-    const fileSupport = SUPPORTED_FILE_TYPES[fileType];
     
+    // Check if file type is supported by MIME or extension
+    const isSupported = Object.keys(ACCEPT_OBJECT).includes(fileType) || 
+                        ACCEPT_OBJECT[fileType] || 
+                        ['.pdf', '.jpg', '.jpeg', '.png', '.docx', '.doc', '.xlsx', '.xls'].some(ext => 
+                          file.name.toLowerCase().endsWith(ext));
+    
+    if (!isSupported) {
+      toast.error(`Unsupported file type: ${file.name}. Please upload PDF, Image, Word, or Excel files.`);
+      return;
+    }
+
+    // Get file support info
+    let fileSupport = SUPPORTED_FILE_TYPES[fileType];
     if (!fileSupport) {
-      toast.error(`Unsupported file type: ${file.type}. Please upload PDF, Image, Word, or Excel files.`);
+      // Determine by extension
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      for (const [mime, info] of Object.entries(SUPPORTED_FILE_TYPES)) {
+        if (info.extensions.includes(ext)) {
+          fileSupport = info;
+          break;
+        }
+      }
+    }
+
+    if (!fileSupport) {
+      toast.error(`Unsupported file type: ${file.name}`);
       return;
     }
 
@@ -157,20 +191,24 @@ const PDFUploader = ({ onUploadComplete }) => {
 
     try {
       let extractedText = '';
+      const isImage = fileSupport.needsOcr;
+      const isPdf = fileType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
       
       // Step 1: Extract text based on file type
-      if (fileSupport.needsOcr) {
-        // Use client-side tesseract.js for images
+      if (isImage) {
         toast.loading('Running OCR on image... This may take a moment.', { id: 'ocr' });
         extractedText = await extractTextFromImage(file);
         toast.dismiss('ocr');
         if (!extractedText || extractedText.trim().length < 10) {
           throw new Error('Could not extract sufficient text from image. Please try a clearer image.');
         }
-      } else if (fileType === 'application/pdf') {
+      } else if (isPdf) {
         toast.loading('Extracting text from PDF...', { id: 'pdf' });
         extractedText = await extractTextFromPdf(file);
         toast.dismiss('pdf');
+        if (!extractedText || extractedText.trim().length < 10) {
+          throw new Error('Could not extract sufficient text from PDF. The file might be scanned or image-based.');
+        }
       } else {
         // For Word/Excel
         toast.loading('Processing document...', { id: 'doc' });
@@ -204,7 +242,7 @@ const PDFUploader = ({ onUploadComplete }) => {
         tax: extractedData.tax || 0,
         date: extractedData.date || new Date().toISOString().split('T')[0],
         pdf_url: publicUrl,
-        file_type: fileType,
+        file_type: fileType || 'application/octet-stream',
         invoice_number: extractedData.invoiceNumber || `INV-${Date.now()}`,
         extracted_data: extractedData,
         status: 'pending',
@@ -220,7 +258,7 @@ const PDFUploader = ({ onUploadComplete }) => {
       if (dbError) throw dbError;
 
       setUploadStatus('success');
-      toast.success(`Invoice scanned successfully! Extracted: ${extractedData.vendor}`);
+      toast.success(`Invoice scanned successfully! Extracted: ${extractedData.vendor || 'invoice data'}`);
       
       if (onUploadComplete) {
         onUploadComplete(savedInvoice);
@@ -237,7 +275,7 @@ const PDFUploader = ({ onUploadComplete }) => {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: ACCEPTED_MIME_TYPES,
+    accept: ACCEPT_OBJECT,
     maxFiles: 1,
     multiple: false
   });
