@@ -42,15 +42,6 @@ const ModeSelector = () => {
       features: ['Invoice scanning', 'Cash flow management', 'Risk scoring', 'What-if simulations'],
       aiFeatures: ['AI Chatbot', 'Anomaly Detection', 'Smart Predictions', 'Business Insights']
     },
-    {
-      id: 'enterprise',
-      name: 'Enterprise',
-      icon: Building2,
-      description: 'Full-scale financial intelligence for organizations',
-      color: 'purple',
-      features: ['Department analytics', 'Role-based access', 'Audit logs', 'Advanced DSS'],
-      aiFeatures: ['AI Chatbot', 'Anomaly Detection', 'Smart Predictions', 'Enterprise Analytics', 'Compliance Monitoring']
-    }
   ];
 
   const handleConfirm = () => {
