@@ -20,3 +20,6 @@ torch
 transformers
 scikit-learn
 joblib
+huggingface-hub
+
+

@@ -7,6 +7,7 @@ from supabase import create_client, Client
 from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
+from app.services.hf_model_loader import hf_loader
 
 # ============================================
 # ENVIRONMENT VARIABLES (Vercel injects these)
@@ -338,3 +339,145 @@ async def resend_verification(request: ResendVerificationRequest):
             }
         
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# Add these endpoints after your existing endpoints
+
+# ============================================
+# MODEL STATUS ENDPOINTS
+# ============================================
+@app.get("/api/models/status")
+async def get_model_status():
+    """Check if ML models are loaded and ready"""
+    return hf_loader.get_model_status()
+
+@app.post("/api/models/refresh")
+async def refresh_models():
+    """Refresh model cache (clear and reload)"""
+    # Clear the LRU cache
+    hf_loader.load_isolation_forest.cache_clear()
+    hf_loader.load_scaler.cache_clear()
+    hf_loader.load_bert_classifier.cache_clear()
+    
+    # Reload models
+    return {
+        "message": "Models refreshed",
+        "status": hf_loader.get_model_status()
+    }
+
+# ============================================
+# ANOMALY DETECTION USING ML MODEL
+# ============================================
+class TransactionForDetection(BaseModel):
+    amount: float
+    frequency: Optional[int] = 1
+
+@app.post("/api/anomalies/detect")
+async def detect_anomaly(transaction: TransactionForDetection):
+    """Detect if a transaction is anomalous using Isolation Forest"""
+    model = hf_loader.load_isolation_forest()
+    scaler = hf_loader.load_scaler()
+    
+    if model is None or scaler is None:
+        # Fallback to simple threshold
+        is_anomaly = transaction.amount > 1000
+        return {
+            "is_anomaly": is_anomaly,
+            "anomaly_score": 0.8 if is_anomaly else 0.2,
+            "reason": "Amount unusually high" if is_anomaly else "Normal transaction",
+            "method": "fallback"
+        }
+    
+    try:
+        import numpy as np
+        features = np.array([[transaction.amount, transaction.frequency]])
+        features_scaled = scaler.transform(features)
+        
+        prediction = model.predict(features_scaled)
+        score = model.score_samples(features_scaled)[0]
+        
+        is_anomaly = prediction[0] == -1
+        anomaly_score = max(0, min(100, (1 - score) * 100))
+        
+        return {
+            "is_anomaly": is_anomaly,
+            "anomaly_score": round(anomaly_score, 2),
+            "reason": "Transaction detected as anomalous" if is_anomaly else "Transaction appears normal",
+            "method": "isolation_forest"
+        }
+    except Exception as e:
+        return {
+            "is_anomaly": False,
+            "anomaly_score": 0,
+            "reason": f"Error: {str(e)}",
+            "method": "error"
+        }
+
+# ============================================
+# TRANSACTION CLASSIFICATION USING BERT
+# ============================================
+class TransactionToClassify(BaseModel):
+    description: str
+    amount: float
+
+@app.post("/api/transactions/classify")
+async def classify_transaction(transaction: TransactionToClassify):
+    """Classify transaction category using BERT model"""
+    model, tokenizer, label_encoder = hf_loader.load_bert_classifier()
+    
+    if model is None or tokenizer is None:
+        # Fallback to keyword matching
+        return _fallback_classify(transaction.description, transaction.amount)
+    
+    try:
+        import torch
+        
+        inputs = tokenizer(
+            transaction.description.lower(),
+            return_tensors="pt",
+            truncation=True,
+            max_length=64,
+            padding=True
+        )
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+        
+        pred = torch.argmax(outputs.logits, dim=1).item()
+        confidence = float(torch.softmax(outputs.logits, dim=1).max().item())
+        
+        category = label_encoder.inverse_transform([pred])[0] if label_encoder else f"class_{pred}"
+        
+        return {
+            "category": category,
+            "confidence": round(confidence, 2),
+            "method": "bert"
+        }
+    except Exception as e:
+        return _fallback_classify(transaction.description, transaction.amount)
+
+def _fallback_classify(description: str, amount: float) -> dict:
+    """Fallback keyword-based classification"""
+    description_lower = description.lower()
+    
+    keywords = {
+        'Groceries': ['walmart', 'target', 'kroger', 'safeway', 'costco', 'aldi', 'trader joe', 'whole foods', 'cvs'],
+        'Dining': ['starbucks', 'mcdonalds', 'chipotle', 'restaurant', 'cafe', 'burger', 'pizza'],
+        'Transport': ['uber', 'lyft', 'taxi', 'gas', 'shell', 'exxon', 'parking'],
+        'Utilities': ['electric', 'water', 'internet', 'phone', 'comcast', 'att', 'verizon'],
+        'Entertainment': ['netflix', 'spotify', 'disney', 'hulu', 'cinema', 'movie'],
+        'Shopping': ['amazon', 'ebay', 'nike', 'adidas', 'clothing', 'shoes', 'best buy'],
+        'Health': ['doctor', 'dental', 'hospital', 'pharmacy', 'gym'],
+        'Rent': ['rent', 'apartment', 'lease', 'property'],
+        'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
+    }
+    
+    for category, words in keywords.items():
+        if any(word in description_lower for word in words):
+            confidence = 0.85 if amount > 1000 and category == 'Income' else 0.7
+            return {"category": category, "confidence": confidence, "method": "keyword"}
+    
+    if amount > 1000:
+        return {"category": "Income", "confidence": 0.6, "method": "keyword"}
+    
+    return {"category": "Other", "confidence": 0.4, "method": "keyword"}
