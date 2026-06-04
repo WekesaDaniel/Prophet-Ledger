@@ -16,5 +16,7 @@ python-docx
 openpyxl
 sqlalchemy
 psycopg2-binary
-python-docx
-openpyxl
+torch
+transformers
+scikit-learn
+joblib
