@@ -1,6 +1,12 @@
-﻿import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, Calculator, AlertTriangle, Users, DollarSign, Loader } from 'lucide-react';
+﻿// frontend/src/components/dss/ScenarioSimulator.jsx
+import React, { useState, useEffect } from 'react';
+import { 
+  TrendingUp, TrendingDown, Calculator, AlertTriangle, 
+  Users, DollarSign, Loader, Info, CheckCircle
+} from 'lucide-react';
 import api from '../../services/api';
+import { supabase } from '../../services/supabaseClient';
+import toast from 'react-hot-toast';
 
 const ScenarioSimulator = ({ userId }) => {
   const [scenarioType, setScenarioType] = useState('revenue_increase');
@@ -9,10 +15,41 @@ const ScenarioSimulator = ({ userId }) => {
     timeframe: 12,
     investment_needed: 0,
     category: 'operations',
-    reduction_percentage: 10
+    reduction_percentage: 10,
+    amount: 10000,
+    expected_return: 15,
+    debt_amount: 5000,
+    interest_rate: 18,
+    salary: 60000
   });
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [userData, setUserData] = useState(null);
+
+  useEffect(() => {
+    fetchUserFinancialData();
+  }, [userId]);
+
+  const fetchUserFinancialData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: transactions } = await supabase
+          .from('transactions')
+          .select('amount, type')
+          .eq('user_id', user.id)
+          .limit(100);
+        
+        if (transactions) {
+          const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+          const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+          setUserData({ monthlyIncome: totalIncome, monthlyExpense: totalExpense });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch user data:', error);
+    }
+  };
 
   const scenarios = [
     { id: 'revenue_increase', name: 'Revenue Increase', icon: TrendingUp, color: 'green', description: 'Increase sales or pricing' },
@@ -23,6 +60,11 @@ const ScenarioSimulator = ({ userId }) => {
   ];
 
   const handleSimulate = async () => {
+    if (!userId) {
+      toast.error('Please login to run simulations');
+      return;
+    }
+    
     setLoading(true);
     try {
       const response = await api.post('/dss/what-if/evaluate', {
@@ -30,23 +72,55 @@ const ScenarioSimulator = ({ userId }) => {
         scenario: { type: scenarioType, parameters }
       });
       setResults(response.data);
+      toast.success('Simulation completed!');
     } catch (error) {
       console.error('Simulation failed:', error);
-      // Mock results for demo
-      setResults({
-        scenario: `Increase revenue by ${parameters.percentage}%`,
-        impact: {
-          additional_revenue: 50000 * (parameters.percentage / 10),
-          additional_profit: 35000 * (parameters.percentage / 10),
-          new_monthly_profit: 15000 + (35000 * (parameters.percentage / 10) / 12),
-          roi_percentage: 45,
-          payback_months: 6.5
-        },
-        recommendation: 'This scenario is highly recommended. The ROI exceeds 40% with reasonable payback period.',
-        risks: ['Market conditions may change', 'Competitor response could impact results']
-      });
+      // Fallback local calculation
+      const fallbackResults = getFallbackResults();
+      setResults(fallbackResults);
+      toast.error('Using estimated calculations');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getFallbackResults = () => {
+    const baseIncome = userData?.monthlyIncome || 50000;
+    const baseExpense = userData?.monthlyExpense || 32000;
+    
+    switch (scenarioType) {
+      case 'revenue_increase':
+        return {
+          scenario: `Increase revenue by ${parameters.percentage}%`,
+          impact: {
+            additional_revenue: baseIncome * (parameters.percentage / 100) * parameters.timeframe,
+            additional_profit: baseIncome * (parameters.percentage / 100) * parameters.timeframe * 0.7,
+            new_monthly_profit: (baseIncome - baseExpense) + (baseIncome * (parameters.percentage / 100)),
+            roi_percentage: 45,
+            payback_months: parameters.investment_needed > 0 ? (parameters.investment_needed / (baseIncome * (parameters.percentage / 100))) * 12 : 6
+          },
+          recommendation: 'Revenue increase scenarios typically yield positive ROI within 6-12 months.',
+          risks: ['Market competition may limit growth', 'Increased customer acquisition costs']
+        };
+      case 'cost_reduction':
+        return {
+          scenario: `Reduce ${parameters.category} costs by ${parameters.reduction_percentage}%`,
+          impact: {
+            monthly_savings: baseExpense * (parameters.reduction_percentage / 100),
+            annual_savings: baseExpense * (parameters.reduction_percentage / 100) * 12,
+            profit_improvement: parameters.reduction_percentage,
+            new_net_margin: ((baseIncome - (baseExpense * (1 - parameters.reduction_percentage / 100))) / baseIncome) * 100
+          },
+          recommendation: 'Cost reduction can significantly improve profitability without increasing revenue.',
+          risks: ['Potential quality impact', 'Employee morale concerns']
+        };
+      default:
+        return {
+          scenario: "Scenario Analysis",
+          impact: { additional_profit: 0, roi_percentage: 0 },
+          recommendation: "Adjust parameters for detailed analysis.",
+          risks: ["Market conditions may change"]
+        };
     }
   };
 
@@ -81,7 +155,7 @@ const ScenarioSimulator = ({ userId }) => {
                 step={1}
                 value={parameters.timeframe}
                 onChange={(e) => setParameters({...parameters, timeframe: parseInt(e.target.value)})}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                className="w-full h-2 bg-gray-200 rounded-lg"
               />
             </div>
             <div>
@@ -124,7 +198,91 @@ const ScenarioSimulator = ({ userId }) => {
                 step={5}
                 value={parameters.reduction_percentage}
                 onChange={(e) => setParameters({...parameters, reduction_percentage: parseInt(e.target.value)})}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                className="w-full h-2 bg-gray-200 rounded-lg"
+              />
+            </div>
+          </div>
+        );
+      
+      case 'new_investment':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Investment Amount ($)</label>
+              <input
+                type="number"
+                className="w-full p-2 border rounded-lg"
+                value={parameters.amount}
+                onChange={(e) => setParameters({...parameters, amount: parseFloat(e.target.value) || 0})}
+                placeholder="10000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Expected Annual Return (%): {parameters.expected_return}%</label>
+              <input
+                type="range"
+                min={0}
+                max={50}
+                step={5}
+                value={parameters.expected_return}
+                onChange={(e) => setParameters({...parameters, expected_return: parseInt(e.target.value)})}
+                className="w-full h-2 bg-gray-200 rounded-lg"
+              />
+            </div>
+          </div>
+        );
+      
+      case 'debt_payoff':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Debt Amount ($)</label>
+              <input
+                type="number"
+                className="w-full p-2 border rounded-lg"
+                value={parameters.debt_amount}
+                onChange={(e) => setParameters({...parameters, debt_amount: parseFloat(e.target.value) || 0})}
+                placeholder="5000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Interest Rate (%): {parameters.interest_rate}%</label>
+              <input
+                type="range"
+                min={0}
+                max={30}
+                step={1}
+                value={parameters.interest_rate}
+                onChange={(e) => setParameters({...parameters, interest_rate: parseInt(e.target.value)})}
+                className="w-full h-2 bg-gray-200 rounded-lg"
+              />
+            </div>
+          </div>
+        );
+      
+      case 'hire_employee':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Annual Salary ($)</label>
+              <input
+                type="number"
+                className="w-full p-2 border rounded-lg"
+                value={parameters.salary}
+                onChange={(e) => setParameters({...parameters, salary: parseFloat(e.target.value) || 0})}
+                placeholder="60000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Timeframe: {parameters.timeframe} months</label>
+              <input
+                type="range"
+                min={1}
+                max={24}
+                step={1}
+                value={parameters.timeframe}
+                onChange={(e) => setParameters({...parameters, timeframe: parseInt(e.target.value)})}
+                className="w-full h-2 bg-gray-200 rounded-lg"
               />
             </div>
           </div>
@@ -196,28 +354,68 @@ const ScenarioSimulator = ({ userId }) => {
           <h3 className="font-bold text-lg mb-4">📊 Projected Impact</h3>
           
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-green-50 rounded-xl p-4 border border-green-200">
-              <p className="text-sm text-green-700 mb-1">Additional Profit</p>
-              <p className="text-2xl font-bold text-green-700">
-                ${results.impact.additional_profit?.toLocaleString() || '0'}
-              </p>
-              <p className="text-xs text-green-600 mt-1">over {parameters.timeframe} months</p>
-            </div>
+            {results.impact.additional_profit !== undefined && (
+              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                <p className="text-sm text-green-700 mb-1">Additional Profit</p>
+                <p className="text-2xl font-bold text-green-700">
+                  ${results.impact.additional_profit?.toLocaleString() || '0'}
+                </p>
+                <p className="text-xs text-green-600 mt-1">over {parameters.timeframe} months</p>
+              </div>
+            )}
             
-            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <p className="text-sm text-blue-700 mb-1">Return on Investment (ROI)</p>
-              <p className="text-2xl font-bold text-blue-700">
-                {results.impact.roi_percentage || 0}%
-              </p>
-              {results.impact.payback_months && (
-                <p className="text-xs text-blue-600 mt-1">Payback: {results.impact.payback_months} months</p>
-              )}
-            </div>
+            {results.impact.annual_savings !== undefined && (
+              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                <p className="text-sm text-green-700 mb-1">Annual Savings</p>
+                <p className="text-2xl font-bold text-green-700">
+                  ${results.impact.annual_savings?.toLocaleString() || '0'}
+                </p>
+              </div>
+            )}
+            
+            {results.impact.monthly_savings !== undefined && (
+              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                <p className="text-sm text-green-700 mb-1">Monthly Savings</p>
+                <p className="text-2xl font-bold text-green-700">
+                  ${results.impact.monthly_savings?.toLocaleString() || '0'}
+                </p>
+              </div>
+            )}
+            
+            {results.impact.roi_percentage !== undefined && (
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                <p className="text-sm text-blue-700 mb-1">Return on Investment (ROI)</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  {results.impact.roi_percentage || 0}%
+                </p>
+                {results.impact.payback_months && (
+                  <p className="text-xs text-blue-600 mt-1">Payback: {results.impact.payback_months} months</p>
+                )}
+              </div>
+            )}
+            
+            {results.impact.annual_return !== undefined && (
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                <p className="text-sm text-blue-700 mb-1">Annual Return</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  ${results.impact.annual_return?.toLocaleString() || '0'}
+                </p>
+              </div>
+            )}
+            
+            {results.impact.interest_saved !== undefined && (
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                <p className="text-sm text-blue-700 mb-1">Interest Saved</p>
+                <p className="text-2xl font-bold text-blue-700">
+                  ${results.impact.interest_saved?.toLocaleString() || '0'}
+                </p>
+              </div>
+            )}
           </div>
           
           <div className="bg-gray-100 rounded-xl p-4 mb-4">
             <h4 className="font-semibold mb-2 flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1 text-green-600" />
+              <Info className="w-4 h-4 mr-1 text-blue-600" />
               Recommendation
             </h4>
             <p className="text-gray-700 text-sm">{results.recommendation}</p>

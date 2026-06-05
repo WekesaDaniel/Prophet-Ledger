@@ -1,13 +1,15 @@
 // frontend/src/components/dss/ScoreMeter.jsx
 import React, { useState, useEffect } from 'react';
-import { Loader, TrendingUp, TrendingDown } from 'lucide-react';
+import { Loader, TrendingUp, TrendingDown, Info } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import api from '../../services/api';
+import toast from 'react-hot-toast';
 
 const ScoreMeter = () => {
   const [score, setScore] = useState(0);
   const [loading, setLoading] = useState(true);
   const [trend, setTrend] = useState('stable');
+  const [riskData, setRiskData] = useState(null);
 
   useEffect(() => {
     fetchRiskScore();
@@ -20,6 +22,7 @@ const ScoreMeter = () => {
       const response = await api.get('/dss/risk/score');
       setScore(response.data.risk_score || 68);
       setTrend(response.data.trend || 'improving');
+      setRiskData(response.data);
     } catch (error) {
       console.error('Failed to fetch risk score:', error);
       
@@ -31,18 +34,21 @@ const ScoreMeter = () => {
             .from('transactions')
             .select('amount, type')
             .eq('user_id', user.id)
-            .limit(50);
+            .limit(100);
           
           if (transactions && transactions.length > 0) {
+            const incomes = transactions.filter(t => t.type === 'income').map(t => t.amount);
             const expenses = transactions.filter(t => t.type === 'expense').map(t => t.amount);
-            const avgExpense = expenses.reduce((a, b) => a + b, 0) / expenses.length;
-            const volatility = Math.sqrt(expenses.reduce((sum, amt) => sum + Math.pow(amt - avgExpense, 2), 0) / expenses.length);
-            const cv = avgExpense > 0 ? volatility / avgExpense : 0;
+            
+            const totalIncome = incomes.reduce((a, b) => a + b, 0);
+            const totalExpense = expenses.reduce((a, b) => a + b, 0);
+            const netCashflow = totalIncome - totalExpense;
+            const savingsRate = totalIncome > 0 ? (netCashflow / totalIncome) * 100 : 0;
             
             let calculatedScore = 68;
-            if (cv > 1.5) calculatedScore = 85;
-            else if (cv > 1.0) calculatedScore = 75;
-            else if (cv > 0.5) calculatedScore = 60;
+            if (savingsRate < 0) calculatedScore = 85;
+            else if (savingsRate < 10) calculatedScore = 75;
+            else if (savingsRate < 20) calculatedScore = 60;
             else calculatedScore = 45;
             
             setScore(Math.min(100, Math.max(0, calculatedScore)));
@@ -74,6 +80,12 @@ const ScoreMeter = () => {
     return 'Low Risk';
   };
 
+  const getRecommendation = () => {
+    if (score < 30) return 'Your finances look healthy. Continue your good habits!';
+    if (score < 60) return 'Some risk detected. Review your spending and consider building savings.';
+    return 'High risk detected. Reduce discretionary spending and build emergency fund.';
+  };
+
   if (loading) {
     return <Loader className="w-8 h-8 animate-spin mx-auto" />;
   }
@@ -100,6 +112,18 @@ const ScoreMeter = () => {
               <TrendingUp className="w-4 h-4 text-red-500 mr-1" />
               <span className="text-red-600">Worsening</span>
             </>
+          )}
+        </div>
+        <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
+          <div className="flex items-center gap-1 mb-1">
+            <Info className="w-3 h-3 text-blue-500" />
+            <span className="font-medium">Recommendation</span>
+          </div>
+          <p>{getRecommendation()}</p>
+          {riskData?.active_anomalies > 0 && (
+            <p className="mt-2 text-yellow-600">
+              ⚠️ {riskData.active_anomalies} pending {riskData.active_anomalies === 1 ? 'anomaly' : 'anomalies'} to review
+            </p>
           )}
         </div>
       </div>
