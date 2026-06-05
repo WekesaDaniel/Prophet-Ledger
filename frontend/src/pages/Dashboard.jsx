@@ -4,7 +4,6 @@ import { useMode } from '../contexts/ModeContext';
 import { useAuth } from '../contexts/AuthContext';
 import KpiGrid from '../components/dashboard/KpiGrid';
 import TrendChart from '../components/dashboard/TrendChart';
-import AlertCenter from '../components/dashboard/AlertCenter';
 import AnomalyTable from '../components/dashboard/AnomalyTable';
 import RiskHeatmap from '../components/dashboard/RiskHeatmap';
 import RecommendationPanel from '../components/dashboard/RecommendationPanel';
@@ -69,10 +68,6 @@ const Dashboard = () => {
       </div>
       
       <div className="px-4 py-6 lg:px-8">
-        {/* Alert Center */}
-        <div className="mb-6">
-          <AlertCenter />
-        </div>
 
         {/* KPI Grid */}
         <div className="mb-8">
@@ -104,11 +99,7 @@ const Dashboard = () => {
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-gray-400">
           <p>Last updated: {new Date().toLocaleString()}</p>
-          <p className="mt-1">              <img
-                src="/logo512.png"
-                alt="Logo"
-                className="w-8 h-8 object-contain"
-              /> ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
+          <p className="mt-1"> ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
         </div>
       </div>
     </>

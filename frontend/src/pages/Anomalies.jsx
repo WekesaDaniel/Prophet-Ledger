@@ -1,16 +1,16 @@
 // frontend/src/pages/Anomalies.jsx
 import React from 'react';
 import AnomalyTable from '../components/dashboard/AnomalyTable';
-import { AlertTriangle, Shield, Clock } from 'lucide-react';
+import { AlertTriangle, Shield, Clock, TrendingUp, DollarSign } from 'lucide-react';
 
 const Anomalies = () => {
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-6xl mx-auto py-8 px-4">
+      <div className="max-w-7xl mx-auto py-8 px-4">
         <h1 className="text-2xl font-bold mb-2">Anomaly Detection</h1>
-        <p className="text-gray-600 mb-8">AI-powered fraud detection and unusual transaction monitoring</p>
+        <p className="text-gray-600 mb-8">AI-powered fraud detection and unusual transaction monitoring with custom limit controls</p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg p-4">
             <Shield className="w-8 h-8 mb-2" />
             <div className="text-2xl font-bold">24/7</div>
@@ -25,6 +25,11 @@ const Anomalies = () => {
             <Clock className="w-8 h-8 mb-2" />
             <div className="text-2xl font-bold">&lt;1s</div>
             <div className="text-sm opacity-90">Alert Time</div>
+          </div>
+          <div className="bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-lg p-4">
+            <DollarSign className="w-8 h-8 mb-2" />
+            <div className="text-2xl font-bold">Custom</div>
+            <div className="text-sm opacity-90">Per-category Limits</div>
           </div>
         </div>
 
