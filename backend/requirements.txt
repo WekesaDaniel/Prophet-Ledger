@@ -1,4 +1,4 @@
-fastapi
+﻿fastapi
 uvicorn
 supabase
 python-jose
@@ -11,15 +11,10 @@ numpy
 groq
 PyPDF2
 Pillow
-pytesseract
 python-docx
 openpyxl
 sqlalchemy
 psycopg2-binary
-torch
-transformers
 scikit-learn
 joblib
-huggingface-hub
-
-
+requests
