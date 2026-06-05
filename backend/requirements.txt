@@ -9,5 +9,5 @@ pydantic
 python-dotenv
 numpy
 groq
-sqlalchemy
 asyncpg
+requests
