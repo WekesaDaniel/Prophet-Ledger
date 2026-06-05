@@ -1,3 +1,13 @@
 fastapi
 uvicorn
 supabase
+requests
+joblib
+python-jose
+passlib
+bcrypt
+python-multipart
+pydantic
+python-dotenv
+groq
+numpy
