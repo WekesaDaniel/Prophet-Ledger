@@ -5,27 +5,24 @@ import { Upload, FileText, Image, File, Loader, CheckCircle, XCircle } from 'luc
 import { supabase } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
-import { createWorker } from 'tesseract.js';
+
+// Dynamic import for tesseract.js (loads only when needed)
+const loadTesseract = () => import('tesseract.js');
 
 const SUPPORTED_FILE_TYPES = {
   'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false, extensions: ['.pdf'] },
   'image/jpeg': { icon: Image, label: 'JPEG', needsOcr: true, extensions: ['.jpg', '.jpeg'] },
   'image/png': { icon: Image, label: 'PNG', needsOcr: true, extensions: ['.png'] },
-  'image/heic': { icon: Image, label: 'HEIC', needsOcr: true, extensions: ['.heic'] },
-  'image/heif': { icon: Image, label: 'HEIF', needsOcr: true, extensions: ['.heif'] },
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { icon: File, label: 'Word', needsOcr: false, extensions: ['.docx'] },
   'application/msword': { icon: File, label: 'Word', needsOcr: false, extensions: ['.doc'] },
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { icon: File, label: 'Excel', needsOcr: false, extensions: ['.xlsx'] },
   'application/vnd.ms-excel': { icon: File, label: 'Excel', needsOcr: false, extensions: ['.xls'] }
 };
 
-// Build accept object for react-dropzone (MIME type -> extensions)
 const ACCEPT_OBJECT = {
   'application/pdf': ['.pdf'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
-  'image/heic': ['.heic'],
-  'image/heif': ['.heif'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/msword': ['.doc'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
@@ -39,8 +36,10 @@ const PDFUploader = ({ onUploadComplete }) => {
   const [fileInfo, setFileInfo] = useState(null);
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // Extract text from image using tesseract.js (client-side)
+  // Extract text from image using tesseract.js (lazy loaded)
   const extractTextFromImage = async (file) => {
+    const { createWorker } = await loadTesseract();
+    
     return new Promise((resolve, reject) => {
       const worker = createWorker({
         logger: m => {
@@ -71,7 +70,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/extract-text', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/extract-text`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -92,7 +91,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/extract-text', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/extract-text`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -108,13 +107,12 @@ const PDFUploader = ({ onUploadComplete }) => {
     return data.text;
   };
 
-  // Process file and extract data using backend API
   const processFileWithBackend = async (file, extractedText) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('extracted_text', extractedText);
     
-    const response = await fetch('https://prophetledger-api.vercel.app/api/invoices/process', {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/process`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -130,14 +128,9 @@ const PDFUploader = ({ onUploadComplete }) => {
   };
 
   const onDrop = useCallback(async (acceptedFiles, fileRejections) => {
-    // Handle file rejection
     if (fileRejections && fileRejections.length > 0) {
       const rejection = fileRejections[0];
-      if (rejection.errors[0].code === 'file-invalid-type') {
-        toast.error(`Unsupported file type. Please upload PDF, JPEG, PNG, Word (.docx), or Excel (.xlsx) files.`);
-      } else {
-        toast.error(rejection.errors[0].message || 'File upload failed');
-      }
+      toast.error(rejection.errors[0].message || 'File upload failed');
       return;
     }
 
@@ -145,22 +138,15 @@ const PDFUploader = ({ onUploadComplete }) => {
     if (!file) return;
 
     const fileType = file.type;
-    
-    // Check if file type is supported by MIME or extension
-    const isSupported = Object.keys(ACCEPT_OBJECT).includes(fileType) || 
-                        ACCEPT_OBJECT[fileType] || 
-                        ['.pdf', '.jpg', '.jpeg', '.png', '.docx', '.doc', '.xlsx', '.xls'].some(ext => 
-                          file.name.toLowerCase().endsWith(ext));
+    const isSupported = Object.keys(ACCEPT_OBJECT).includes(fileType);
     
     if (!isSupported) {
-      toast.error(`Unsupported file type: ${file.name}. Please upload PDF, Image, Word, or Excel files.`);
+      toast.error(`Unsupported file type. Please upload PDF, Image, Word, or Excel files.`);
       return;
     }
 
-    // Get file support info
     let fileSupport = SUPPORTED_FILE_TYPES[fileType];
     if (!fileSupport) {
-      // Determine by extension
       const ext = '.' + file.name.split('.').pop().toLowerCase();
       for (const [mime, info] of Object.entries(SUPPORTED_FILE_TYPES)) {
         if (info.extensions.includes(ext)) {
@@ -170,13 +156,8 @@ const PDFUploader = ({ onUploadComplete }) => {
       }
     }
 
-    if (!fileSupport) {
-      toast.error(`Unsupported file type: ${file.name}`);
-      return;
-    }
-
-    if (!user?.id) {
-      toast.error('Please login to upload invoices');
+    if (!fileSupport || !user?.id) {
+      toast.error(!user?.id ? 'Please login to upload invoices' : 'Unsupported file type');
       return;
     }
 
@@ -192,31 +173,22 @@ const PDFUploader = ({ onUploadComplete }) => {
     try {
       let extractedText = '';
       const isImage = fileSupport.needsOcr;
-      const isPdf = fileType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const isPdf = fileType === 'application/pdf';
       
-      // Step 1: Extract text based on file type
       if (isImage) {
-        toast.loading('Running OCR on image... This may take a moment.', { id: 'ocr' });
+        toast.loading('Running OCR on image...', { id: 'ocr' });
         extractedText = await extractTextFromImage(file);
         toast.dismiss('ocr');
-        if (!extractedText || extractedText.trim().length < 10) {
-          throw new Error('Could not extract sufficient text from image. Please try a clearer image.');
-        }
       } else if (isPdf) {
         toast.loading('Extracting text from PDF...', { id: 'pdf' });
         extractedText = await extractTextFromPdf(file);
         toast.dismiss('pdf');
-        if (!extractedText || extractedText.trim().length < 10) {
-          throw new Error('Could not extract sufficient text from PDF. The file might be scanned or image-based.');
-        }
       } else {
-        // For Word/Excel
         toast.loading('Processing document...', { id: 'doc' });
         extractedText = await extractTextFromDocument(file);
         toast.dismiss('doc');
       }
       
-      // Step 2: Upload file to Supabase Storage
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
@@ -226,15 +198,12 @@ const PDFUploader = ({ onUploadComplete }) => {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('invoices')
         .getPublicUrl(fileName);
 
-      // Step 3: Process extracted text to get structured invoice data
       const extractedData = await processFileWithBackend(file, extractedText);
       
-      // Step 4: Save invoice record to Supabase
       const invoiceData = {
         user_id: user.id,
         vendor: extractedData.vendor || 'Unknown',
@@ -242,7 +211,6 @@ const PDFUploader = ({ onUploadComplete }) => {
         tax: extractedData.tax || 0,
         date: extractedData.date || new Date().toISOString().split('T')[0],
         pdf_url: publicUrl,
-        file_type: fileType || 'application/octet-stream',
         invoice_number: extractedData.invoiceNumber || `INV-${Date.now()}`,
         extracted_data: extractedData,
         status: 'pending',
@@ -258,11 +226,9 @@ const PDFUploader = ({ onUploadComplete }) => {
       if (dbError) throw dbError;
 
       setUploadStatus('success');
-      toast.success(`Invoice scanned successfully! Extracted: ${extractedData.vendor || 'invoice data'}`);
+      toast.success(`Invoice scanned successfully!`);
       
-      if (onUploadComplete) {
-        onUploadComplete(savedInvoice);
-      }
+      if (onUploadComplete) onUploadComplete(savedInvoice);
     } catch (error) {
       console.error('Error processing invoice:', error);
       setUploadStatus('error');
@@ -299,10 +265,7 @@ const PDFUploader = ({ onUploadComplete }) => {
                 <Loader className="w-12 h-12 mx-auto text-blue-500 animate-spin mb-3" />
                 <p className="text-gray-600">Running OCR... {ocrProgress}%</p>
                 <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div 
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${ocrProgress}%` }}
-                  />
+                  <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${ocrProgress}%` }} />
                 </div>
               </>
             ) : (
@@ -311,15 +274,11 @@ const PDFUploader = ({ onUploadComplete }) => {
                 <p className="text-gray-600">Processing {fileInfo?.name}...</p>
               </>
             )}
-            <p className="text-sm text-gray-400 mt-1">Extracting data</p>
           </div>
         ) : uploadStatus === 'success' ? (
           <div>
             <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-3" />
             <p className="text-green-600">Invoice processed successfully!</p>
-            {fileInfo && (
-              <p className="text-sm text-green-500 mt-1">{fileInfo.name}</p>
-            )}
           </div>
         ) : uploadStatus === 'error' ? (
           <div>
@@ -329,9 +288,7 @@ const PDFUploader = ({ onUploadComplete }) => {
         ) : (
           <>
             <Upload className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-            <p className="text-gray-600">
-              {isDragActive ? 'Drop file here' : 'Drag & drop invoice/receipt here'}
-            </p>
+            <p className="text-gray-600">{isDragActive ? 'Drop file here' : 'Drag & drop invoice/receipt here'}</p>
             <p className="text-sm text-gray-400 mt-2">or click to browse</p>
             <div className="mt-3 flex flex-wrap justify-center gap-2 text-xs text-gray-500">
               <span className="px-2 py-1 bg-gray-100 rounded">PDF</span>
