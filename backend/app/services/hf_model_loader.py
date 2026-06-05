@@ -1,7 +1,6 @@
 # backend/app/services/hf_model_loader.py
 import os
 import joblib
-import tempfile
 import logging
 from functools import lru_cache
 from typing import Optional, Tuple
@@ -13,11 +12,11 @@ class HuggingFaceModelLoader:
     """Load machine learning models from Hugging Face Hub"""
     
     def __init__(self):
-        self.repo_id = "Nomandaniels/prophetledger-models"  # Your Hugging Face repo
+        self.repo_id = "Nomandaniels/prophetledger-models"
         self.cache_dir = "/tmp/prophetledger_models"
         os.makedirs(self.cache_dir, exist_ok=True)
-        self._models = {}
-        
+        print(f"✅ HuggingFaceModelLoader initialized. Repo: {self.repo_id}")
+    
     @lru_cache(maxsize=1)
     def load_isolation_forest(self):
         """Load Isolation Forest model from Hugging Face"""
@@ -25,13 +24,14 @@ class HuggingFaceModelLoader:
             model_path = hf_hub_download(
                 repo_id=self.repo_id,
                 filename="isolation_forest.pkl",
-                cache_dir=self.cache_dir
+                cache_dir=self.cache_dir,
+                token=os.environ.get("HF_TOKEN")
             )
             model = joblib.load(model_path)
-            logger.info("✅ Isolation Forest model loaded from Hugging Face")
+            print("✅ Isolation Forest model loaded from Hugging Face")
             return model
         except Exception as e:
-            logger.error(f"Failed to load Isolation Forest: {e}")
+            print(f"⚠️ Failed to load Isolation Forest: {e}")
             return None
     
     @lru_cache(maxsize=1)
@@ -41,29 +41,30 @@ class HuggingFaceModelLoader:
             scaler_path = hf_hub_download(
                 repo_id=self.repo_id,
                 filename="anomaly_scaler.pkl",
-                cache_dir=self.cache_dir
+                cache_dir=self.cache_dir,
+                token=os.environ.get("HF_TOKEN")
             )
             scaler = joblib.load(scaler_path)
-            logger.info("✅ Scaler loaded from Hugging Face")
+            print("✅ Scaler loaded from Hugging Face")
             return scaler
         except Exception as e:
-            logger.error(f"Failed to load scaler: {e}")
+            print(f"⚠️ Failed to load scaler: {e}")
             return None
     
     @lru_cache(maxsize=1)
-    def load_bert_classifier(self) -> Tuple[Optional[object], Optional[object]]:
+    def load_bert_classifier(self) -> Tuple[Optional[object], Optional[object], Optional[object]]:
         """Load BERT classifier from Hugging Face"""
         try:
             from transformers import BertTokenizer, BertForSequenceClassification
             
-            # Download the entire folder
-            model_path = hf_hub_download(
+            # Download config to get the base path
+            config_path = hf_hub_download(
                 repo_id=self.repo_id,
                 filename="bert_classifier/config.json",
-                cache_dir=self.cache_dir
+                cache_dir=self.cache_dir,
+                token=os.environ.get("HF_TOKEN")
             )
-            # Get the directory path
-            base_dir = os.path.dirname(model_path)
+            base_dir = os.path.dirname(config_path)
             
             tokenizer = BertTokenizer.from_pretrained(base_dir)
             model = BertForSequenceClassification.from_pretrained(base_dir)
@@ -75,10 +76,10 @@ class HuggingFaceModelLoader:
             else:
                 label_encoder = None
             
-            logger.info("✅ BERT classifier loaded from Hugging Face")
+            print("✅ BERT classifier loaded from Hugging Face")
             return model, tokenizer, label_encoder
         except Exception as e:
-            logger.error(f"Failed to load BERT: {e}")
+            print(f"⚠️ Failed to load BERT: {e}")
             return None, None, None
     
     def get_model_status(self) -> dict:
@@ -87,8 +88,9 @@ class HuggingFaceModelLoader:
             "isolation_forest": self.load_isolation_forest() is not None,
             "scaler": self.load_scaler() is not None,
             "bert": self.load_bert_classifier()[0] is not None,
-            "cache_directory": self.cache_dir
+            "cache_directory": self.cache_dir,
+            "hf_repo": self.repo_id
         }
 
-# Global instance
+# Create global instance
 hf_loader = HuggingFaceModelLoader()

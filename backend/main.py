@@ -1,12 +1,15 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request
+﻿# backend/app/main.py
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import os
-from supabase import create_client, Client
-from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
+from supabase import create_client, Client
+from groq import Groq
+
+# Import the Hugging Face model loader
 from app.services.hf_model_loader import hf_loader
 
 # ============================================
@@ -19,6 +22,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 # Debug logging (appears in Vercel logs)
 print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
 print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
+print(f"📦 Hugging Face models: {hf_loader.get_model_status()}")
 
 # Initialize clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
@@ -66,6 +70,41 @@ def health():
     }
 
 # ============================================
+# MODEL STATUS ENDPOINTS (NEW)
+# ============================================
+@app.get("/api/models/status")
+async def get_model_status():
+    """Get the status of all ML models from Hugging Face"""
+    return hf_loader.get_model_status()
+
+@app.get("/api/models/health")
+async def models_health():
+    """Simple health check for models"""
+    status = hf_loader.get_model_status()
+    all_loaded = status.get("isolation_forest", False) and status.get("scaler", False)
+    
+    return {
+        "status": "healthy" if all_loaded else "degraded",
+        "models": status
+    }
+
+@app.post("/api/models/refresh")
+async def refresh_models():
+    """Refresh model cache (clear and reload)"""
+    # Clear the LRU caches
+    if hasattr(hf_loader, 'load_isolation_forest'):
+        hf_loader.load_isolation_forest.cache_clear()
+    if hasattr(hf_loader, 'load_scaler'):
+        hf_loader.load_scaler.cache_clear()
+    if hasattr(hf_loader, 'load_bert_classifier'):
+        hf_loader.load_bert_classifier.cache_clear()
+    
+    return {
+        "message": "Models cache cleared. They will reload on next request.",
+        "status": hf_loader.get_model_status()
+    }
+
+# ============================================
 # AUTH MODELS
 # ============================================
 class LoginRequest(BaseModel):
@@ -76,6 +115,9 @@ class RegisterRequest(BaseModel):
     email: str
     full_name: str
     password: str
+
+class ResendVerificationRequest(BaseModel):
+    email: str
 
 # ============================================
 # AUTH ENDPOINTS (Supabase)
@@ -177,6 +219,166 @@ async def get_current_user(request: Request):
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+@app.post("/api/auth/resend-verification")
+async def resend_verification(request: ResendVerificationRequest):
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        # First, check if user exists
+        user_response = supabase.auth.admin.get_user_by_email(request.email)
+        
+        if not user_response.user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Resend confirmation email
+        resend_response = supabase.auth.sign_up({
+            "email": request.email,
+            "password": "temp_resend_password",
+            "options": {
+                "email_redirect_to": "https://prophet-ledger.vercel.app/login"
+            }
+        })
+        
+        return {
+            "success": True,
+            "message": "Verification email sent successfully"
+        }
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Resend verification error: {error_msg}")
+        
+        # If user exists but we can't resend, still return success
+        if "User already registered" in error_msg or "already exists" in error_msg:
+            return {
+                "success": True,
+                "message": "If your email is registered, a verification link has been sent"
+            }
+        
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============================================
+# ANOMALY DETECTION USING ML MODEL
+# ============================================
+class TransactionForDetection(BaseModel):
+    amount: float
+    frequency: Optional[int] = 1
+
+@app.post("/api/anomalies/detect")
+async def detect_anomaly(transaction: TransactionForDetection):
+    """Detect if a transaction is anomalous using Isolation Forest"""
+    model = hf_loader.load_isolation_forest()
+    scaler = hf_loader.load_scaler()
+    
+    if model is None or scaler is None:
+        # Fallback to simple threshold
+        is_anomaly = transaction.amount > 1000
+        return {
+            "is_anomaly": is_anomaly,
+            "anomaly_score": 0.8 if is_anomaly else 0.2,
+            "reason": "Amount unusually high" if is_anomaly else "Normal transaction",
+            "method": "fallback"
+        }
+    
+    try:
+        features = np.array([[transaction.amount, transaction.frequency]])
+        features_scaled = scaler.transform(features)
+        
+        prediction = model.predict(features_scaled)
+        score = model.score_samples(features_scaled)[0]
+        
+        is_anomaly = prediction[0] == -1
+        anomaly_score = max(0, min(100, (1 - score) * 100))
+        
+        return {
+            "is_anomaly": is_anomaly,
+            "anomaly_score": round(anomaly_score, 2),
+            "reason": "Transaction detected as anomalous" if is_anomaly else "Transaction appears normal",
+            "method": "isolation_forest"
+        }
+    except Exception as e:
+        return {
+            "is_anomaly": False,
+            "anomaly_score": 0,
+            "reason": f"Error: {str(e)}",
+            "method": "error"
+        }
+
+@app.get("/api/anomalies")
+async def get_anomalies(limit: int = 10):
+    """Get list of detected anomalies (from database)"""
+    return [
+        {"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"},
+    ][:limit]
+
+# ============================================
+# TRANSACTION CLASSIFICATION USING BERT
+# ============================================
+class TransactionToClassify(BaseModel):
+    description: str
+    amount: float
+
+@app.post("/api/transactions/classify")
+async def classify_transaction(transaction: TransactionToClassify):
+    """Classify transaction category using BERT model"""
+    model, tokenizer, label_encoder = hf_loader.load_bert_classifier()
+    
+    if model is None or tokenizer is None:
+        return _fallback_classify(transaction.description, transaction.amount)
+    
+    try:
+        import torch
+        
+        inputs = tokenizer(
+            transaction.description.lower(),
+            return_tensors="pt",
+            truncation=True,
+            max_length=64,
+            padding=True
+        )
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+        
+        pred = torch.argmax(outputs.logits, dim=1).item()
+        confidence = float(torch.softmax(outputs.logits, dim=1).max().item())
+        
+        category = label_encoder.inverse_transform([pred])[0] if label_encoder else f"class_{pred}"
+        
+        return {
+            "category": category,
+            "confidence": round(confidence, 2),
+            "method": "bert"
+        }
+    except Exception as e:
+        return _fallback_classify(transaction.description, transaction.amount)
+
+def _fallback_classify(description: str, amount: float) -> dict:
+    """Fallback keyword-based classification"""
+    description_lower = description.lower()
+    
+    keywords = {
+        'Groceries': ['walmart', 'target', 'kroger', 'safeway', 'costco', 'aldi', 'trader joe', 'whole foods', 'cvs'],
+        'Dining': ['starbucks', 'mcdonalds', 'chipotle', 'restaurant', 'cafe', 'burger', 'pizza'],
+        'Transport': ['uber', 'lyft', 'taxi', 'gas', 'shell', 'exxon', 'parking'],
+        'Utilities': ['electric', 'water', 'internet', 'phone', 'comcast', 'att', 'verizon'],
+        'Entertainment': ['netflix', 'spotify', 'disney', 'hulu', 'cinema', 'movie'],
+        'Shopping': ['amazon', 'ebay', 'nike', 'adidas', 'clothing', 'shoes', 'best buy'],
+        'Health': ['doctor', 'dental', 'hospital', 'pharmacy', 'gym'],
+        'Rent': ['rent', 'apartment', 'lease', 'property'],
+        'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
+    }
+    
+    for category, words in keywords.items():
+        if any(word in description_lower for word in words):
+            confidence = 0.85 if amount > 1000 and category == 'Income' else 0.7
+            return {"category": category, "confidence": confidence, "method": "keyword"}
+    
+    if amount > 1000:
+        return {"category": "Income", "confidence": 0.6, "method": "keyword"}
+    
+    return {"category": "Other", "confidence": 0.4, "method": "keyword"}
+
 # ============================================
 # CHATBOT ENDPOINT (Groq API)
 # ============================================
@@ -261,15 +463,6 @@ async def get_trend(metric: str, days: int = 90):
     return {"metric": metric, "history": history, "anomalies": []}
 
 # ============================================
-# ANOMALY DETECTION
-# ============================================
-@app.get("/api/anomalies")
-async def get_anomalies(limit: int = 10):
-    return [
-        {"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"},
-    ][:limit]
-
-# ============================================
 # KPI ENDPOINTS
 # ============================================
 @app.get("/api/dss/kpis")
@@ -295,189 +488,3 @@ async def get_invoices():
     return [
         {"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"},
     ]
-
-# Add this model at the top with other models
-class ResendVerificationRequest(BaseModel):
-    email: str
-
-# Add this endpoint (after your auth endpoints)
-@app.post("/api/auth/resend-verification")
-async def resend_verification(request: ResendVerificationRequest):
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    try:
-        # First, check if user exists
-        user_response = supabase.auth.admin.get_user_by_email(request.email)
-        
-        if not user_response.user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Resend confirmation email
-        # Note: Supabase resends confirmation via the sign-up endpoint
-        resend_response = supabase.auth.sign_up({
-            "email": request.email,
-            "password": "temp_resend_password",  # This won't change existing password
-            "options": {
-                "email_redirect_to": "https://prophet-ledger.vercel.app/login"
-            }
-        })
-        
-        return {
-            "success": True,
-            "message": "Verification email sent successfully"
-        }
-    except Exception as e:
-        error_msg = str(e)
-        print(f"Resend verification error: {error_msg}")
-        
-        # If user exists but we can't resend, still return success (user will check spam)
-        if "User already registered" in error_msg or "already exists" in error_msg:
-            return {
-                "success": True,
-                "message": "If your email is registered, a verification link has been sent"
-            }
-        
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# Add these endpoints after your existing endpoints
-
-# ============================================
-# MODEL STATUS ENDPOINTS
-# ============================================
-@app.get("/api/models/status")
-async def get_model_status():
-    """Check if ML models are loaded and ready"""
-    return hf_loader.get_model_status()
-
-@app.post("/api/models/refresh")
-async def refresh_models():
-    """Refresh model cache (clear and reload)"""
-    # Clear the LRU cache
-    hf_loader.load_isolation_forest.cache_clear()
-    hf_loader.load_scaler.cache_clear()
-    hf_loader.load_bert_classifier.cache_clear()
-    
-    # Reload models
-    return {
-        "message": "Models refreshed",
-        "status": hf_loader.get_model_status()
-    }
-
-# ============================================
-# ANOMALY DETECTION USING ML MODEL
-# ============================================
-class TransactionForDetection(BaseModel):
-    amount: float
-    frequency: Optional[int] = 1
-
-@app.post("/api/anomalies/detect")
-async def detect_anomaly(transaction: TransactionForDetection):
-    """Detect if a transaction is anomalous using Isolation Forest"""
-    model = hf_loader.load_isolation_forest()
-    scaler = hf_loader.load_scaler()
-    
-    if model is None or scaler is None:
-        # Fallback to simple threshold
-        is_anomaly = transaction.amount > 1000
-        return {
-            "is_anomaly": is_anomaly,
-            "anomaly_score": 0.8 if is_anomaly else 0.2,
-            "reason": "Amount unusually high" if is_anomaly else "Normal transaction",
-            "method": "fallback"
-        }
-    
-    try:
-        import numpy as np
-        features = np.array([[transaction.amount, transaction.frequency]])
-        features_scaled = scaler.transform(features)
-        
-        prediction = model.predict(features_scaled)
-        score = model.score_samples(features_scaled)[0]
-        
-        is_anomaly = prediction[0] == -1
-        anomaly_score = max(0, min(100, (1 - score) * 100))
-        
-        return {
-            "is_anomaly": is_anomaly,
-            "anomaly_score": round(anomaly_score, 2),
-            "reason": "Transaction detected as anomalous" if is_anomaly else "Transaction appears normal",
-            "method": "isolation_forest"
-        }
-    except Exception as e:
-        return {
-            "is_anomaly": False,
-            "anomaly_score": 0,
-            "reason": f"Error: {str(e)}",
-            "method": "error"
-        }
-
-# ============================================
-# TRANSACTION CLASSIFICATION USING BERT
-# ============================================
-class TransactionToClassify(BaseModel):
-    description: str
-    amount: float
-
-@app.post("/api/transactions/classify")
-async def classify_transaction(transaction: TransactionToClassify):
-    """Classify transaction category using BERT model"""
-    model, tokenizer, label_encoder = hf_loader.load_bert_classifier()
-    
-    if model is None or tokenizer is None:
-        # Fallback to keyword matching
-        return _fallback_classify(transaction.description, transaction.amount)
-    
-    try:
-        import torch
-        
-        inputs = tokenizer(
-            transaction.description.lower(),
-            return_tensors="pt",
-            truncation=True,
-            max_length=64,
-            padding=True
-        )
-        
-        with torch.no_grad():
-            outputs = model(**inputs)
-        
-        pred = torch.argmax(outputs.logits, dim=1).item()
-        confidence = float(torch.softmax(outputs.logits, dim=1).max().item())
-        
-        category = label_encoder.inverse_transform([pred])[0] if label_encoder else f"class_{pred}"
-        
-        return {
-            "category": category,
-            "confidence": round(confidence, 2),
-            "method": "bert"
-        }
-    except Exception as e:
-        return _fallback_classify(transaction.description, transaction.amount)
-
-def _fallback_classify(description: str, amount: float) -> dict:
-    """Fallback keyword-based classification"""
-    description_lower = description.lower()
-    
-    keywords = {
-        'Groceries': ['walmart', 'target', 'kroger', 'safeway', 'costco', 'aldi', 'trader joe', 'whole foods', 'cvs'],
-        'Dining': ['starbucks', 'mcdonalds', 'chipotle', 'restaurant', 'cafe', 'burger', 'pizza'],
-        'Transport': ['uber', 'lyft', 'taxi', 'gas', 'shell', 'exxon', 'parking'],
-        'Utilities': ['electric', 'water', 'internet', 'phone', 'comcast', 'att', 'verizon'],
-        'Entertainment': ['netflix', 'spotify', 'disney', 'hulu', 'cinema', 'movie'],
-        'Shopping': ['amazon', 'ebay', 'nike', 'adidas', 'clothing', 'shoes', 'best buy'],
-        'Health': ['doctor', 'dental', 'hospital', 'pharmacy', 'gym'],
-        'Rent': ['rent', 'apartment', 'lease', 'property'],
-        'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
-    }
-    
-    for category, words in keywords.items():
-        if any(word in description_lower for word in words):
-            confidence = 0.85 if amount > 1000 and category == 'Income' else 0.7
-            return {"category": category, "confidence": confidence, "method": "keyword"}
-    
-    if amount > 1000:
-        return {"category": "Income", "confidence": 0.6, "method": "keyword"}
-    
-    return {"category": "Other", "confidence": 0.4, "method": "keyword"}
