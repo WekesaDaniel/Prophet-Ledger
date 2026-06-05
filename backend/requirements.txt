@@ -9,12 +9,5 @@ pydantic
 python-dotenv
 numpy
 groq
-PyPDF2
-Pillow
-python-docx
-openpyxl
 sqlalchemy
-psycopg2-binary
-scikit-learn
-joblib
-requests
+asyncpg
