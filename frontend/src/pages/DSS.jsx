@@ -13,7 +13,6 @@ const DSS = () => {
         <p className="text-gray-600 mb-8">AI-powered insights to help you make better financial decisions</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Risk Score */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center">
               <Shield className="w-5 h-5 mr-2 text-red-600" />
@@ -22,7 +21,6 @@ const DSS = () => {
             <ScoreMeter />
           </div>
 
-          {/* Risk Heatmap */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center">
               <Zap className="w-5 h-5 mr-2 text-yellow-600" />
@@ -31,7 +29,6 @@ const DSS = () => {
             <RiskHeatmap />
           </div>
 
-          {/* What-If Simulator */}
           <div className="lg:col-span-2">
             <ScenarioSimulator />
           </div>

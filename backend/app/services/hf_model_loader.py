@@ -1,15 +1,17 @@
-﻿import os
+﻿# backend/app/services/hf_model_loader.py
+import os
 import requests
 import joblib
-import tempfile
 from functools import lru_cache
+from typing import Optional, Tuple
 
 class HuggingFaceModelLoader:
     def __init__(self):
         self.repo_id = "Nomandaniels/prophetledger-models"
         self.cache_dir = "/tmp/prophetledger_models"
+        self.api_token = os.environ.get("HF_TOKEN")
         os.makedirs(self.cache_dir, exist_ok=True)
-        print(f"✅ Model loader initialized")
+        print("✅ HuggingFace Model Loader initialized")
     
     def _download_file(self, filename):
         url = f"https://huggingface.co/{self.repo_id}/resolve/main/{filename}"
@@ -28,7 +30,7 @@ class HuggingFaceModelLoader:
             path = self._download_file("isolation_forest.pkl")
             return joblib.load(path)
         except Exception as e:
-            print(f"Failed: {e}")
+            print(f"Failed to load Isolation Forest: {e}")
             return None
     
     @lru_cache(maxsize=1)
@@ -37,15 +39,35 @@ class HuggingFaceModelLoader:
             path = self._download_file("anomaly_scaler.pkl")
             return joblib.load(path)
         except Exception as e:
-            print(f"Failed: {e}")
+            print(f"Failed to load scaler: {e}")
+            return None
+    
+    def classify_with_hf_inference(self, description: str) -> Optional[dict]:
+        """Use Hugging Face Inference API for classification"""
+        if not self.api_token:
+            return None
+        
+        api_url = f"https://api-inference.huggingface.co/models/{self.repo_id}"
+        headers = {"Authorization": f"Bearer {self.api_token}"}
+        
+        try:
+            response = requests.post(api_url, headers=headers, json={"inputs": description})
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    return {"category": result[0][0]['label'], "confidence": result[0][0]['score'], "method": "hf_inference"}
+            return None
+        except Exception as e:
+            print(f"HF Inference error: {e}")
             return None
     
     def get_model_status(self):
         return {
             "isolation_forest": self.load_isolation_forest() is not None,
             "scaler": self.load_scaler() is not None,
+            "hf_inference": self.api_token is not None,
             "cache_directory": self.cache_dir,
-            "hf_repo": self.repo_id
+            "repo": self.repo_id
         }
 
 hf_loader = HuggingFaceModelLoader()

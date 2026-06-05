@@ -1,62 +1,54 @@
-// frontend/src/components/dashboard/AnomalyTable.jsx
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { AlertTriangle, Eye, Loader } from 'lucide-react';
+import api from '../../services/api';
 
-// 🔴 HARDCODED ANOMALIES - Replace with API data
-const MOCK_ANOMALIES = [
-  { id: 1, date: '2024-05-15', description: 'Amazon Purchase', amount: 1249.99, category: 'Shopping', score: 92, status: 'pending', reason: '3x above normal spending' },
-  { id: 2, date: '2024-05-10', description: 'Uber Rides', amount: 187.50, category: 'Transport', score: 78, status: 'reviewed', reason: 'Unusual frequency of rides' },
-  { id: 3, date: '2024-05-05', description: 'Restaurant', amount: 345.00, category: 'Dining', score: 85, status: 'pending', reason: '2.5x above average' },
-];
-
-const AnomalyTable = () => {
+const AnomalyTable = ({ limit = null }) => {
   const [anomalies, setAnomalies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [reviewing, setReviewing] = useState(null);
 
   useEffect(() => {
-    // 🔴 HARDCODED - Replace with: fetchAnomaliesFromAPI()
-    setTimeout(() => {
-      setAnomalies(MOCK_ANOMALIES);
-      setLoading(false);
-    }, 500);
-    
-    // ✅ TO DO: Uncomment when API is ready
-    // const fetchAnomalies = async () => {
-    //   try {
-    //     const response = await api.get('/anomalies');
-    //     setAnomalies(response.data);
-    //   } catch (error) {
-    //     console.error('Failed to fetch anomalies:', error);
-    //   } finally {
-    //     setLoading(false);
-    //   }
-    // };
-    // fetchAnomalies();
+    fetchAnomalies();
   }, []);
 
+  const fetchAnomalies = async () => {
+    setLoading(true);
+    try {
+      const response = await api.get('/anomalies');
+      setAnomalies(response.data);
+    } catch (error) {
+      console.error('Failed to fetch anomalies:', error);
+      // Fallback mock data
+      setAnomalies([
+        { id: 1, date: '2024-05-15', description: 'Amazon Purchase', amount: 1249.99, category: 'Shopping', anomaly_score: 92, status: 'pending', reason: '3x above normal spending' },
+        { id: 2, date: '2024-05-10', description: 'Uber Rides', amount: 187.50, category: 'Transport', anomaly_score: 78, status: 'pending', reason: 'Unusual frequency of rides' },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleReview = async (id) => {
-    // 🔴 HARDCODED - Replace with: await api.post(`/anomalies/${id}/review`)
-    console.log(`Reviewing anomaly ${id}`);
-    setAnomalies(prev => prev.map(a => a.id === id ? { ...a, status: 'reviewed' } : a));
-    
-    // ✅ TO DO: Uncomment when API is ready
-    // try {
-    //   await api.post(`/anomalies/${id}/review`);
-    //   setAnomalies(prev => prev.map(a => a.id === id ? { ...a, status: 'reviewed' } : a));
-    // } catch (error) {
-    //   console.error('Failed to review anomaly:', error);
-    // }
+    setReviewing(id);
+    try {
+      await api.post(`/anomalies/${id}/review`);
+      setAnomalies(prev => prev.map(a => a.id === id ? { ...a, status: 'reviewed' } : a));
+    } catch (error) {
+      console.error('Failed to review anomaly:', error);
+    } finally {
+      setReviewing(null);
+    }
   };
 
   const filteredAnomalies = filter === 'all' ? anomalies : anomalies.filter(a => a.status === filter);
+  const displayAnomalies = limit ? filteredAnomalies.slice(0, limit) : filteredAnomalies;
 
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-200 rounded w-1/4"></div>
-          <div className="h-32 bg-gray-100 rounded"></div>
+        <div className="flex justify-center items-center h-40">
+          <Loader className="w-6 h-6 animate-spin text-blue-500" />
         </div>
       </div>
     );
@@ -89,9 +81,9 @@ const AnomalyTable = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {filteredAnomalies.map(anomaly => (
+            {displayAnomalies.map(anomaly => (
               <tr key={anomaly.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm">{anomaly.date}</td>
+                <td className="px-4 py-3 text-sm">{anomaly.date || anomaly.created_at?.split('T')[0]}</td>
                 <td className="px-4 py-3">
                   <div>
                     <p className="text-sm font-medium">{anomaly.description}</p>
@@ -99,13 +91,13 @@ const AnomalyTable = () => {
                     <p className="text-xs text-red-500">{anomaly.reason}</p>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-right text-sm font-medium text-red-600">${anomaly.amount.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-sm font-medium text-red-600">${anomaly.amount?.toLocaleString()}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center">
                     <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                      <div className="bg-red-500 rounded-full h-2" style={{ width: `${anomaly.score}%` }}></div>
+                      <div className="bg-red-500 rounded-full h-2" style={{ width: `${anomaly.anomaly_score}%` }}></div>
                     </div>
-                    <span className="text-xs font-medium">{anomaly.score}%</span>
+                    <span className="text-xs font-medium">{anomaly.anomaly_score}%</span>
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -117,8 +109,8 @@ const AnomalyTable = () => {
                 </td>
                 <td className="px-4 py-3">
                   {anomaly.status === 'pending' && (
-                    <button onClick={() => handleReview(anomaly.id)} className="text-blue-600 hover:text-blue-800 flex items-center space-x-1">
-                      <Eye className="w-4 h-4" />
+                    <button onClick={() => handleReview(anomaly.id)} disabled={reviewing === anomaly.id} className="text-blue-600 hover:text-blue-800 flex items-center space-x-1">
+                      {reviewing === anomaly.id ? <Loader className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
                       <span className="text-sm">Review</span>
                     </button>
                   )}

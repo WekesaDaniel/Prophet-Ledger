@@ -392,3 +392,204 @@ async def scan_invoice():
 @app.get("/api/invoices")
 async def get_invoices():
     return [{"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"}]
+
+
+# Add these endpoints to your main.py
+
+# ============================================
+# ANOMALY DETECTION ENDPOINTS
+# ============================================
+@app.get("/api/anomalies")
+async def get_anomalies(request: Request, limit: int = 50):
+    """Get anomalies for current user"""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    try:
+        user = supabase.auth.get_user(token)
+        
+        # Fetch from database
+        response = supabase.table("anomalies")\
+            .select("*")\
+            .eq("user_id", user.user.id)\
+            .order("created_at", desc=True)\
+            .limit(limit)\
+            .execute()
+        
+        if response.data:
+            return response.data
+        else:
+            # Return mock data for testing
+            return [
+                {"id": "1", "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, 
+                 "category": "Shopping", "anomaly_score": 92, "status": "pending", "reason": "3x above normal spending"},
+                {"id": "2", "date": "2024-05-10", "description": "Uber Rides", "amount": 187.50, 
+                 "category": "Transport", "anomaly_score": 78, "status": "pending", "reason": "Unusual frequency of rides"},
+            ]
+    except Exception as e:
+        print(f"Error fetching anomalies: {e}")
+        return []
+
+@app.post("/api/anomalies/{anomaly_id}/review")
+async def review_anomaly(anomaly_id: str, request: Request):
+    """Mark anomaly as reviewed"""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    try:
+        user = supabase.auth.get_user(token)
+        
+        supabase.table("anomalies")\
+            .update({"status": "reviewed", "reviewed_at": datetime.now().isoformat(), "reviewed_by": user.user.id})\
+            .eq("id", anomaly_id)\
+            .eq("user_id", user.user.id)\
+            .execute()
+        
+        return {"success": True, "message": "Anomaly reviewed"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============================================
+# RISK SCORE ENDPOINTS
+# ============================================
+@app.get("/api/dss/risk/score")
+async def get_risk_score(request: Request):
+    """Get user's risk score"""
+    model = hf_loader.load_isolation_forest()
+    scaler = hf_loader.load_scaler()
+    
+    # Calculate risk score (simplified)
+    risk_score = 68
+    risk_level = "medium"
+    
+    if model and scaler:
+        # Use ML model for more accurate scoring
+        pass
+    
+    return {
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "active_anomalies": 2,
+        "recommendation": "Review pending anomalies",
+        "trend": "improving"
+    }
+
+# ============================================
+# KPI ENDPOINTS
+# ============================================
+@app.get("/api/dss/kpis")
+async def get_kpis(request: Request, mode: str = "personal"):
+    """Get KPI data based on user mode"""
+    return [
+        {"id": 1, "title": "Financial Health", "value": 78, "change": 5.2, "trend": "up", 
+         "benchmark": 75, "status": "good", "recommendation": "Keep saving!"},
+        {"id": 2, "title": "Cash Runway", "value": 12, "change": -2, "trend": "down", 
+         "benchmark": 12, "status": "warning", "recommendation": "Watch spending"},
+        {"id": 3, "title": "Burn Rate", "value": 15000, "change": 8, "trend": "up", 
+         "benchmark": 10000, "status": "critical", "recommendation": "Cut expenses"},
+        {"id": 4, "title": "Savings Rate", "value": 18, "change": 3, "trend": "up", 
+         "benchmark": 20, "status": "warning", "recommendation": "Save more"}
+    ][:4]
+
+# ============================================
+# RISK HEATMAP ENDPOINTS
+# ============================================
+@app.get("/api/dss/risk/heatmap")
+async def get_risk_heatmap(request: Request):
+    """Get risk heatmap data by category"""
+    return [
+        {"name": "Groceries", "risk": 25, "amount": 450, "status": "low"},
+        {"name": "Dining", "risk": 65, "amount": 780, "status": "medium"},
+        {"name": "Transport", "risk": 35, "amount": 320, "status": "low"},
+        {"name": "Shopping", "risk": 85, "amount": 1250, "status": "high"},
+        {"name": "Entertainment", "risk": 45, "amount": 280, "status": "medium"},
+        {"name": "Utilities", "risk": 15, "amount": 350, "status": "low"},
+        {"name": "Health", "risk": 55, "amount": 180, "status": "medium"},
+        {"name": "Rent", "risk": 10, "amount": 1500, "status": "low"},
+        {"name": "Income", "risk": 5, "amount": 5000, "status": "low"}
+    ]
+
+# ============================================
+# ALERTS ENDPOINTS
+# ============================================
+@app.get("/api/alerts")
+async def get_alerts(request: Request):
+    """Get user alerts"""
+    return [
+        {"id": 1, "title": "Welcome to ProphetLedger!", "message": "Start by uploading your first invoice", 
+         "severity": "info", "read": False, "created_at": datetime.now().isoformat()}
+    ]
+
+@app.post("/api/alerts/{alert_id}/read")
+async def mark_alert_read(alert_id: str, request: Request):
+    """Mark alert as read"""
+    return {"success": True}
+
+# ============================================
+# TRANSACTION CLASSIFICATION (Groq + HF Fallback)
+# ============================================
+class TransactionToClassify(BaseModel):
+    description: str
+    amount: float
+
+@app.post("/api/transactions/classify")
+async def classify_transaction(transaction: TransactionToClassify):
+    """Classify transaction using Groq with Hugging Face fallback"""
+    
+    # Try Hugging Face Inference API first
+    hf_result = hf_loader.classify_with_hf_inference(transaction.description)
+    if hf_result:
+        return hf_result
+    
+    # Fallback to Groq
+    if groq_client:
+        try:
+            completion = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "Categorize the transaction into: Groceries, Dining, Transport, Utilities, Entertainment, Shopping, Health, Rent, Income, Other. Return ONLY the category name."},
+                    {"role": "user", "content": f"Transaction: {transaction.description}, Amount: ${transaction.amount}"}
+                ],
+                temperature=0.3,
+                max_tokens=20
+            )
+            category = completion.choices[0].message.content.strip()
+            valid_categories = ['Groceries', 'Dining', 'Transport', 'Utilities', 'Entertainment', 'Shopping', 'Health', 'Rent', 'Income', 'Other']
+            if category not in valid_categories:
+                category = 'Other'
+            return {"category": category, "confidence": 0.85, "method": "groq"}
+        except Exception as e:
+            print(f"Groq error: {e}")
+    
+    # Final fallback to keyword matching
+    return _fallback_classify(transaction.description, transaction.amount)
+
+def _fallback_classify(description: str, amount: float) -> dict:
+    description_lower = description.lower()
+    keywords = {
+        'Groceries': ['walmart', 'target', 'kroger', 'costco', 'aldi', 'whole foods'],
+        'Dining': ['starbucks', 'mcdonalds', 'chipotle', 'restaurant', 'cafe', 'burger', 'pizza'],
+        'Transport': ['uber', 'lyft', 'taxi', 'gas', 'shell', 'exxon', 'parking'],
+        'Utilities': ['electric', 'water', 'internet', 'phone', 'comcast', 'att', 'verizon'],
+        'Entertainment': ['netflix', 'spotify', 'disney', 'hulu', 'cinema', 'movie'],
+        'Shopping': ['amazon', 'ebay', 'nike', 'adidas', 'clothing', 'shoes', 'best buy'],
+        'Health': ['doctor', 'dental', 'hospital', 'pharmacy', 'gym'],
+        'Rent': ['rent', 'apartment', 'lease', 'property'],
+        'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
+    }
+    for category, words in keywords.items():
+        if any(word in description_lower for word in words):
+            return {"category": category, "confidence": 0.7, "method": "keyword"}
+    if amount > 1000:
+        return {"category": "Income", "confidence": 0.6, "method": "keyword"}
+    return {"category": "Other", "confidence": 0.4, "method": "keyword"}

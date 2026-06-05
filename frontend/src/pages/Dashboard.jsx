@@ -7,6 +7,7 @@ import TrendChart from '../components/dashboard/TrendChart';
 import AlertCenter from '../components/dashboard/AlertCenter';
 import AnomalyTable from '../components/dashboard/AnomalyTable';
 import RiskHeatmap from '../components/dashboard/RiskHeatmap';
+import RecommendationPanel from '../components/dashboard/RecommendationPanel';
 import { 
   LayoutDashboard, 
   TrendingUp, 
@@ -38,7 +39,6 @@ const Dashboard = () => {
     }
   };
 
-  // Get the display name - prioritize full_name, then email username, fallback to 'User'
   const displayName = user?.full_name?.split(' ')[0] || 
                       getUserName() || 
                       user?.email?.split('@')[0] || 
@@ -51,9 +51,7 @@ const Dashboard = () => {
         <div className="px-6 py-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">
-                Welcome back, {displayName}!
-              </h1>
+              <h1 className="text-2xl font-bold">Welcome back, {displayName}!</h1>
               <p className="text-blue-100 mt-1 flex items-center">
                 {getModeIcon()}
                 <span className="ml-1">{getModeGreeting()}</span>
@@ -71,17 +69,25 @@ const Dashboard = () => {
       </div>
       
       <div className="px-4 py-6 lg:px-8">
+        {/* Alert Center */}
+        <div className="mb-6">
+          <AlertCenter />
+        </div>
 
         {/* KPI Grid */}
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Key Metrics</h2>
-          <KpiGrid mode={mode} currencySymbol={currencySymbol} />
+          <KpiGrid mode={mode} />
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <TrendChart metric="cashflow" currencySymbol={currencySymbol} />
-          <TrendChart metric="expenses" currencySymbol={currencySymbol} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2">
+            <TrendChart metric="cashflow" />
+          </div>
+          <div>
+            <RecommendationPanel />
+          </div>
         </div>
 
         {/* Risk Heatmap */}
@@ -98,13 +104,11 @@ const Dashboard = () => {
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-gray-400">
           <p>Last updated: {new Date().toLocaleString()}</p>
-          <img
-              src="/logo512.png"
-              alt="ProphetLedger Logo"
-              className="w-20 h-20 object-contain mx-auto"
-            />
-
-          <p className="mt-1"> ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
+          <p className="mt-1">              <img
+                src="/logo512.png"
+                alt="Logo"
+                className="w-8 h-8 object-contain"
+              /> ProphetLedger - AI-Driven Financial Intelligence | Currency: {currency} ({currencySymbol})</p>
         </div>
       </div>
     </>
