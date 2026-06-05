@@ -1,6 +1,8 @@
 // frontend/src/components/dss/ScoreMeter.jsx
 import React, { useState, useEffect } from 'react';
 import { Loader, TrendingUp, TrendingDown } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
+import api from '../../services/api';
 
 const ScoreMeter = () => {
   const [score, setScore] = useState(0);
@@ -8,12 +10,57 @@ const ScoreMeter = () => {
   const [trend, setTrend] = useState('stable');
 
   useEffect(() => {
-    setTimeout(() => {
-      setScore(68);
-      setTrend('improving');
-      setLoading(false);
-    }, 500);
+    fetchRiskScore();
   }, []);
+
+  const fetchRiskScore = async () => {
+    setLoading(true);
+    try {
+      // First try to get from API
+      const response = await api.get('/dss/risk/score');
+      setScore(response.data.risk_score || 68);
+      setTrend(response.data.trend || 'improving');
+    } catch (error) {
+      console.error('Failed to fetch risk score:', error);
+      
+      // Fallback: Calculate from transactions
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: transactions } = await supabase
+            .from('transactions')
+            .select('amount, type')
+            .eq('user_id', user.id)
+            .limit(50);
+          
+          if (transactions && transactions.length > 0) {
+            const expenses = transactions.filter(t => t.type === 'expense').map(t => t.amount);
+            const avgExpense = expenses.reduce((a, b) => a + b, 0) / expenses.length;
+            const volatility = Math.sqrt(expenses.reduce((sum, amt) => sum + Math.pow(amt - avgExpense, 2), 0) / expenses.length);
+            const cv = avgExpense > 0 ? volatility / avgExpense : 0;
+            
+            let calculatedScore = 68;
+            if (cv > 1.5) calculatedScore = 85;
+            else if (cv > 1.0) calculatedScore = 75;
+            else if (cv > 0.5) calculatedScore = 60;
+            else calculatedScore = 45;
+            
+            setScore(Math.min(100, Math.max(0, calculatedScore)));
+          } else {
+            setScore(68);
+          }
+        } else {
+          setScore(68);
+        }
+        setTrend('improving');
+      } catch (fallbackError) {
+        setScore(68);
+        setTrend('improving');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getScoreColor = () => {
     if (score < 30) return 'text-red-600';

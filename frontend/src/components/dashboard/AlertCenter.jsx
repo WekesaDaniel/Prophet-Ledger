@@ -1,5 +1,7 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿// frontend/src/components/dashboard/AlertCenter.jsx
+import React, { useState, useEffect } from 'react';
 import { Bell, X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
+import { supabase } from '../../services/supabaseClient';
 
 const AlertCenter = () => {
   const [alerts, setAlerts] = useState([]);
@@ -7,59 +9,101 @@ const AlertCenter = () => {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    // Demo alerts
-    const initialAlerts = [
-      { 
-        id: 1, 
-        title: 'Welcome to ProphetLedger!', 
-        message: 'Start by uploading your first invoice', 
-        severity: 'info', 
-        read: false, 
-        created_at: new Date().toISOString() 
-      }
-    ];
-    setAlerts(initialAlerts);
-    updateUnreadCount(initialAlerts);
+    fetchAlerts();
+    // Refresh alerts every 60 seconds
+    const interval = setInterval(fetchAlerts, 60000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Helper function to update unread count
-  const updateUnreadCount = (alertList) => {
-    const count = alertList.filter(alert => !alert.read).length;
-    setUnreadCount(count);
+  const fetchAlerts = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('alerts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setAlerts(data);
+        setUnreadCount(data.filter(a => !a.read).length);
+      } else {
+        // Create default welcome alert if none exist
+        const welcomeAlert = {
+          id: 'welcome',
+          title: 'Welcome to ProphetLedger!',
+          message: 'Start by adding your first transaction or uploading an invoice.',
+          severity: 'info',
+          read: false,
+          created_at: new Date().toISOString()
+        };
+        setAlerts([welcomeAlert]);
+        setUnreadCount(1);
+      }
+    } catch (error) {
+      console.error('Failed to fetch alerts:', error);
+      setAlerts([
+        { id: 1, title: 'Welcome to ProphetLedger!', message: 'Start by adding your first transaction.', severity: 'info', read: false, created_at: new Date().toISOString() }
+      ]);
+      setUnreadCount(1);
+    }
   };
 
-  // Mark a single alert as read
-  const markAsRead = (alertId) => {
-    const updatedAlerts = alerts.map(alert =>
-      alert.id === alertId ? { ...alert, read: true } : alert
-    );
-    setAlerts(updatedAlerts);
-    updateUnreadCount(updatedAlerts);
+  const markAsRead = async (alertId) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || alertId === 'welcome') {
+        // Local update for welcome alert
+        setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+        return;
+      }
+
+      const { error } = await supabase
+        .from('alerts')
+        .update({ read: true })
+        .eq('id', alertId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Failed to mark alert as read:', error);
+    }
   };
 
-  // Mark all alerts as read
-  const markAllAsRead = () => {
-    const updatedAlerts = alerts.map(alert => ({ ...alert, read: true }));
-    setAlerts(updatedAlerts);
-    setUnreadCount(0);
+  const markAllAsRead = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase
+          .from('alerts')
+          .update({ read: true })
+          .eq('user_id', user.id)
+          .eq('read', false);
+
+        if (error) throw error;
+      }
+      setAlerts(prev => prev.map(a => ({ ...a, read: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Failed to mark all as read:', error);
+    }
   };
 
-  // Handle alert click
-  const handleAlertClick = (alertId) => {
-    markAsRead(alertId);
-  };
-
-  // Get severity icon
   const getSeverityIcon = (severity) => {
     switch (severity) {
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error':
-        return <AlertCircle className="w-4 h-4 text-red-500" />;
-      case 'warning':
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
-      default:
-        return <Info className="w-4 h-4 text-blue-500" />;
+      case 'success': return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'error': return <AlertCircle className="w-4 h-4 text-red-500" />;
+      case 'warning': return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+      default: return <Info className="w-4 h-4 text-blue-500" />;
     }
   };
 
@@ -72,7 +116,7 @@ const AlertCenter = () => {
         <Bell className="w-5 h-5 text-gray-600" />
         {unreadCount > 0 && (
           <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-            {unreadCount}
+            {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
@@ -104,7 +148,7 @@ const AlertCenter = () => {
               alerts.map(alert => (
                 <div 
                   key={alert.id} 
-                  onClick={() => handleAlertClick(alert.id)}
+                  onClick={() => markAsRead(alert.id)}
                   className={`p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors ${
                     !alert.read ? 'bg-blue-50' : ''
                   }`}
