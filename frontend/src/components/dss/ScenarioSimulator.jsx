@@ -8,7 +8,7 @@ import api from '../../services/api';
 import { supabase } from '../../services/supabaseClient';
 import toast from 'react-hot-toast';
 
-const ScenarioSimulator = ({ userId }) => {
+const ScenarioSimulator = () => {
   const [scenarioType, setScenarioType] = useState('revenue_increase');
   const [parameters, setParameters] = useState({
     percentage: 10,
@@ -24,30 +24,27 @@ const ScenarioSimulator = ({ userId }) => {
   });
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [userData, setUserData] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userId, setUserId] = useState(null);
 
   useEffect(() => {
-    fetchUserFinancialData();
-  }, [userId]);
+    checkAuth();
+  }, []);
 
-  const fetchUserFinancialData = async () => {
+  const checkAuth = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: transactions } = await supabase
-          .from('transactions')
-          .select('amount, type')
-          .eq('user_id', user.id)
-          .limit(100);
-        
-        if (transactions) {
-          const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-          const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-          setUserData({ monthlyIncome: totalIncome, monthlyExpense: totalExpense });
-        }
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
+        console.log('User not authenticated');
+        setIsAuthenticated(false);
+        setUserId(null);
+        return;
       }
+      setIsAuthenticated(true);
+      setUserId(user.id);
     } catch (error) {
-      console.error('Failed to fetch user data:', error);
+      console.error('Auth check error:', error);
+      setIsAuthenticated(false);
     }
   };
 
@@ -60,16 +57,22 @@ const ScenarioSimulator = ({ userId }) => {
   ];
 
   const handleSimulate = async () => {
-    if (!userId) {
-      toast.error('Please login to run simulations');
+    if (!isAuthenticated || !userId) {
+      toast.error('Please log in to run simulations');
       return;
     }
     
     setLoading(true);
     try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      
       const response = await api.post('/dss/what-if/evaluate', {
         user_id: userId,
         scenario: { type: scenarioType, parameters }
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       setResults(response.data);
       toast.success('Simulation completed!');
@@ -85,8 +88,8 @@ const ScenarioSimulator = ({ userId }) => {
   };
 
   const getFallbackResults = () => {
-    const baseIncome = userData?.monthlyIncome || 50000;
-    const baseExpense = userData?.monthlyExpense || 32000;
+    const baseIncome = 50000;
+    const baseExpense = 32000;
     
     switch (scenarioType) {
       case 'revenue_increase':
@@ -113,6 +116,38 @@ const ScenarioSimulator = ({ userId }) => {
           },
           recommendation: 'Cost reduction can significantly improve profitability without increasing revenue.',
           risks: ['Potential quality impact', 'Employee morale concerns']
+        };
+      case 'new_investment':
+        return {
+          scenario: `New investment of $${parameters.amount}`,
+          impact: {
+            annual_return: parameters.amount * (parameters.expected_return / 100),
+            roi_percentage: parameters.expected_return,
+            payback_years: parameters.amount / (parameters.amount * (parameters.expected_return / 100))
+          },
+          recommendation: 'Evaluate risk vs reward before proceeding with investment.',
+          risks: ['Market volatility', 'Liquidity concerns']
+        };
+      case 'debt_payoff':
+        return {
+          scenario: `Pay off $${parameters.debt_amount} debt at ${parameters.interest_rate}% interest`,
+          impact: {
+            interest_saved: parameters.debt_amount * (parameters.interest_rate / 100),
+            monthly_cashflow_improvement: (parameters.debt_amount * (parameters.interest_rate / 100)) / 12
+          },
+          recommendation: 'Paying off high-interest debt is financially beneficial.',
+          risks: ['Reduced liquidity']
+        };
+      case 'hire_employee':
+        return {
+          scenario: `Hire new employee at $${parameters.salary}/year`,
+          impact: {
+            total_cost: parameters.salary * 1.3,
+            expected_revenue: parameters.salary * 1.5,
+            net_impact: (parameters.salary * 1.5) - (parameters.salary * 1.3)
+          },
+          recommendation: 'Calculate expected revenue contribution before hiring.',
+          risks: ['Training period', 'Cultural fit']
         };
       default:
         return {
@@ -292,6 +327,22 @@ const ScenarioSimulator = ({ userId }) => {
         return <div className="text-gray-500 text-center py-8">Configure parameters for this scenario type</div>;
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+        <AlertTriangle className="w-12 h-12 mx-auto text-yellow-500 mb-4" />
+        <h3 className="text-lg font-semibold mb-2">Login Required</h3>
+        <p className="text-gray-500 mb-4">Please log in to use the What-If Scenario Simulator</p>
+        <button 
+          onClick={() => window.location.href = '/login'}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+        >
+          Go to Login
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-lg">
