@@ -1,8 +1,6 @@
 fastapi
 uvicorn
 supabase
-requests
-joblib
 python-jose
 passlib
 bcrypt
@@ -11,3 +9,5 @@ pydantic
 python-dotenv
 groq
 numpy
+requests
+joblib
