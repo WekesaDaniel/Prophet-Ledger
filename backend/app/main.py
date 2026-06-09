@@ -2,7 +2,7 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List, Dict
+from typing import Optional
 import os
 import re
 import io
@@ -20,287 +20,179 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
-print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
+print(f"🔐 Supabase: {SUPABASE_URL is not None}, Groq: {GROQ_API_KEY is not None}")
 
-# Initialize clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# ============================================
-# FASTAPI APP
-# ============================================
 app = FastAPI(title="ProphetLedger API", version="1.0.0")
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://prophetledger.vercel.app",
-        "https://prophet-ledger.vercel.app",
-        "http://localhost:3000",
-        "http://localhost:3001"
-    ],
+    allow_origins=["https://prophetledger.vercel.app", "https://prophet-ledger.vercel.app", "http://localhost:3000", "http://localhost:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ============================================
-# AUTH HELPER FUNCTION
+# AUTH HELPER
 # ============================================
 def get_current_user(request: Request):
-    """Get current authenticated user"""
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
     token = auth_header.replace("Bearer ", "")
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
-    
     try:
-        user = supabase.auth.get_user(token)
-        return user.user
-    except Exception as e:
+        return supabase.auth.get_user(token).user
+    except:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-
 # ============================================
-# DEPENDENCIES FOR FILE PARSING
+# FILE PARSING DEPS
 # ============================================
 try:
     import PyPDF2
-    PDF_SUPPORT = True
-except ImportError:
-    PDF_SUPPORT = False
-    print("⚠️ PyPDF2 not installed. PDF support disabled.")
-
-try:
     from docx import Document
-    DOCX_SUPPORT = True
-except ImportError:
-    DOCX_SUPPORT = False
-    print("⚠️ python-docx not installed. Word document support disabled.")
-
-try:
     import openpyxl
-    XLSX_SUPPORT = True
+    PDF_SUPPORT = DOCX_SUPPORT = XLSX_SUPPORT = True
 except ImportError:
-    XLSX_SUPPORT = False
-    print("⚠️ openpyxl not installed. Excel support disabled.")
+    PDF_SUPPORT = DOCX_SUPPORT = XLSX_SUPPORT = False
 
-
-# ============================================
-# INVOICE EXTRACTION FUNCTIONS
-# ============================================
-def extract_text_from_pdf(file_content: bytes) -> str:
+def extract_text_from_pdf(content: bytes) -> str:
     if not PDF_SUPPORT:
         return ""
     try:
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
         text = ""
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
+        for page in PyPDF2.PdfReader(io.BytesIO(content)).pages:
+            if page_text := page.extract_text():
                 text += page_text + "\n"
         return text
-    except Exception as e:
-        print(f"PDF extraction error: {e}")
+    except:
         return ""
 
-
-def extract_text_from_docx(file_content: bytes) -> str:
+def extract_text_from_docx(content: bytes) -> str:
     if not DOCX_SUPPORT:
         return ""
     try:
-        doc = Document(io.BytesIO(file_content))
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text])
+        doc = Document(io.BytesIO(content))
+        text = "\n".join([p.text for p in doc.paragraphs if p.text])
         for table in doc.tables:
             for row in table.rows:
-                row_text = " ".join([cell.text for cell in row.cells if cell.text])
-                if row_text:
+                if row_text := " ".join([c.text for c in row.cells if c.text]):
                     text += "\n" + row_text
         return text
-    except Exception as e:
-        print(f"DOCX extraction error: {e}")
+    except:
         return ""
 
-
-def extract_text_from_xlsx(file_content: bytes) -> str:
+def extract_text_from_xlsx(content: bytes) -> str:
     if not XLSX_SUPPORT:
         return ""
     try:
-        workbook = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
         text = ""
-        for sheet_name in workbook.sheetnames:
-            sheet = workbook[sheet_name]
-            text += f"\n--- Sheet: {sheet_name} ---\n"
+        for sheet in openpyxl.load_workbook(io.BytesIO(content), data_only=True).worksheets:
+            text += f"\n--- Sheet: {sheet.title} ---\n"
             for row in sheet.iter_rows(values_only=True):
-                row_text = " ".join([str(cell) for cell in row if cell])
-                if row_text:
+                if row_text := " ".join([str(c) for c in row if c]):
                     text += row_text + "\n"
         return text
-    except Exception as e:
-        print(f"XLSX extraction error: {e}")
+    except:
         return ""
 
-
 def extract_invoice_data(text: str) -> dict:
+    if not text or len(text.strip()) < 10:
+        return {'vendor': 'Unknown', 'total': 0.0, 'tax': 0.0, 'date': datetime.now().strftime('%Y-%m-%d'), 'invoiceNumber': f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'}
+    
     data = {}
     
-    if not text or len(text.strip()) < 10:
-        return {
-            'vendor': 'Unknown',
-            'total': 0.0,
-            'tax': 0.0,
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'invoiceNumber': f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'
-        }
-    
-    vendor_patterns = [
-        r'(?:Vendor|From|Company|Store|Merchant|Seller|Supplier)[:\s]+([^\n]+)',
-        r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+Invoice',
-        r'Bill To:?\s*([^\n]+)',
-    ]
-    for pattern in vendor_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
+    for pattern in [r'(?:Vendor|From|Company|Store|Merchant|Seller|Supplier)[:\s]+([^\n]+)', r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+Invoice', r'Bill To:?\s*([^\n]+)']:
+        if match := re.search(pattern, text, re.IGNORECASE):
             data['vendor'] = match.group(1).strip()[:100]
             break
-    if 'vendor' not in data:
-        data['vendor'] = 'Unknown'
-
-    total_patterns = [
-        r'(?:Total|Amount Due|Invoice Total|Grand Total|Balance Due)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
-        r'(?:Total|Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
-        r'[\$£€]\s*([\d,]+\.?\d*)\s*(?:Total|Amount)',
-    ]
-    for pattern in total_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
+    data.setdefault('vendor', 'Unknown')
+    
+    for pattern in [r'(?:Total|Amount Due|Invoice Total|Grand Total|Balance Due)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)', r'(?:Total|Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)', r'[\$£€]\s*([\d,]+\.?\d*)\s*(?:Total|Amount)']:
+        if match := re.search(pattern, text, re.IGNORECASE):
             try:
                 data['total'] = float(match.group(1).replace(',', ''))
                 break
             except:
                 continue
-    if 'total' not in data:
-        data['total'] = 0.0
-
-    tax_patterns = [
-        r'(?:Tax|GST|VAT|HST)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
-        r'(?:Sales Tax|Tax Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)'
-    ]
-    for pattern in tax_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
+    data.setdefault('total', 0.0)
+    
+    for pattern in [r'(?:Tax|GST|VAT|HST)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)', r'(?:Sales Tax|Tax Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)']:
+        if match := re.search(pattern, text, re.IGNORECASE):
             try:
                 data['tax'] = float(match.group(1).replace(',', ''))
                 break
             except:
                 continue
-    if 'tax' not in data:
-        data['tax'] = 0.0
-
-    date_patterns = [
-        r'(?:Date|Invoice Date|Issue Date|Created)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
-        r'(?:Date)[:\s]+(\d{4}-\d{2}-\d{2})',
-        r'(\d{1,2}/\d{1,2}/\d{4})',
-    ]
-    for pattern in date_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
+    data.setdefault('tax', 0.0)
+    
+    for pattern in [r'(?:Date|Invoice Date|Issue Date|Created)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', r'(?:Date)[:\s]+(\d{4}-\d{2}-\d{2})', r'(\d{1,2}/\d{1,2}/\d{4})']:
+        if match := re.search(pattern, text, re.IGNORECASE):
             data['date'] = match.group(1)
             break
-    if 'date' not in data:
-        data['date'] = datetime.now().strftime('%Y-%m-%d')
-
-    inv_patterns = [
-        r'(?:Invoice|Invoice Number|INV|Bill|Receipt Number)[:\s#]+([A-Z0-9-]+)',
-        r'Invoice\s*#?\s*([A-Z0-9-]+)',
-        r'INV-\d+',
-    ]
-    for pattern in inv_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
+    data.setdefault('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    for pattern in [r'(?:Invoice|Invoice Number|INV|Bill|Receipt Number)[:\s#]+([A-Z0-9-]+)', r'Invoice\s*#?\s*([A-Z0-9-]+)', r'INV-\d+']:
+        if match := re.search(pattern, text, re.IGNORECASE):
             data['invoiceNumber'] = match.group(1) if match.groups() else match.group(0)
             break
-    if 'invoiceNumber' not in data:
-        data['invoiceNumber'] = f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'
-
+    data.setdefault('invoiceNumber', f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}')
+    
     return data
 
-
 # ============================================
-# HEALTH & MODEL STATUS
+# HEALTH
 # ============================================
 @app.get("/")
 def root():
-    return {"message": "ProphetLedger API is running!", "status": "healthy", "version": "1.0.0"}
+    return {"message": "ProphetLedger API is running!", "status": "healthy"}
 
 @app.get("/api/health")
 def health():
-    return {
-        "status": "healthy",
-        "services": {"supabase": supabase is not None, "groq": groq_client is not None},
-        "environment": "production"
-    }
+    return {"status": "healthy", "services": {"supabase": supabase is not None, "groq": groq_client is not None}}
 
 @app.get("/api/models/status")
 async def get_model_status():
     return hf_loader.get_model_status()
 
-
 # ============================================
-# INVOICE ENDPOINTS
+# INVOICES
 # ============================================
 @app.post("/api/invoices/extract-text")
-async def extract_text_only(
-    file: UploadFile = File(...),
-    current_user = Depends(get_current_user)
-):
-    try:
-        contents = await file.read()
-        file_type = file.content_type
-        text = ""
-        
-        if file_type == 'application/pdf':
-            text = extract_text_from_pdf(contents)
-        elif file_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
-            text = extract_text_from_docx(contents)
-        elif file_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel']:
-            text = extract_text_from_xlsx(contents)
-        else:
-            text = contents.decode('utf-8', errors='ignore')
-        
-        if not text or len(text.strip()) < 10:
-            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
-        
-        return {"text": text, "filename": file.filename, "file_type": file_type}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
-
+async def extract_text_only(file: UploadFile = File(...), current_user=Depends(get_current_user)):
+    contents = await file.read()
+    file_type = file.content_type
+    text = ""
+    
+    if file_type == 'application/pdf':
+        text = extract_text_from_pdf(contents)
+    elif file_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+        text = extract_text_from_docx(contents)
+    elif file_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel']:
+        text = extract_text_from_xlsx(contents)
+    else:
+        text = contents.decode('utf-8', errors='ignore')
+    
+    if not text or len(text.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Could not extract sufficient text")
+    
+    return {"text": text, "filename": file.filename, "file_type": file_type}
 
 @app.post("/api/invoices/process")
-async def process_invoice(
-    file: UploadFile = File(...),
-    extracted_text: str = Form(...),
-    current_user = Depends(get_current_user)
-):
-    try:
-        extracted_data = extract_invoice_data(extracted_text)
-        extracted_data['file_name'] = file.filename
-        extracted_data['file_type'] = file.content_type
-        extracted_data['extraction_method'] = 'regex'
-        return extracted_data
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process invoice: {str(e)}")
-
+async def process_invoice(file: UploadFile = File(...), extracted_text: str = Form(...), current_user=Depends(get_current_user)):
+    extracted_data = extract_invoice_data(extracted_text)
+    extracted_data['file_name'] = file.filename
+    extracted_data['file_type'] = file.content_type
+    return extracted_data
 
 # ============================================
-# AUTH ENDPOINTS
+# AUTH
 # ============================================
 class LoginRequest(BaseModel):
     email: str
@@ -330,10 +222,7 @@ async def login(request: LoginRequest):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
     try:
-        response = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
-        })
+        response = supabase.auth.sign_in_with_password({"email": request.email, "password": request.password})
         return {
             "access_token": response.session.access_token,
             "token_type": "bearer",
@@ -350,16 +239,10 @@ async def login(request: LoginRequest):
 
 @app.get("/api/auth/me")
 async def get_current_user_route(current_user=Depends(get_current_user)):
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "full_name": current_user.user_metadata.get("full_name", ""),
-        "is_active": True
-    }
-
+    return {"id": current_user.id, "email": current_user.email, "full_name": current_user.user_metadata.get("full_name", ""), "is_active": True}
 
 # ============================================
-# CHATBOT ENDPOINT
+# CHATBOT
 # ============================================
 class ChatRequest(BaseModel):
     query: str
@@ -371,10 +254,7 @@ async def chat(request: ChatRequest):
     try:
         completion = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are a helpful financial assistant."},
-                {"role": "user", "content": request.query}
-            ],
+            messages=[{"role": "system", "content": "You are a helpful financial assistant."}, {"role": "user", "content": request.query}],
             temperature=0.7,
             max_tokens=500
         )
@@ -382,9 +262,8 @@ async def chat(request: ChatRequest):
     except Exception as e:
         return {"query": request.query, "response": str(e), "intent": "error", "confidence": 0}
 
-
 # ============================================
-# RISK SCORE ENDPOINT (DYNAMIC)
+# RISK SCORE
 # ============================================
 @app.get("/api/dss/risk/score")
 async def get_risk_score(request: Request):
@@ -403,31 +282,20 @@ async def get_risk_score(request: Request):
         return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Invalid token"}
     
     try:
-        anomalies_response = supabase.table("anomalies").select("id, anomaly_score, status").eq("user_id", user_id).execute()
-        anomalies = anomalies_response.data or []
+        anomalies = supabase.table("anomalies").select("status").eq("user_id", user_id).execute().data or []
         pending_count = len([a for a in anomalies if a.get('status') == 'pending'])
         
         if pending_count == 0:
-            risk_score = 25
-            risk_level = "low"
-            recommendation = "No anomalies detected. Good job!"
+            return {"risk_score": 25, "risk_level": "low", "active_anomalies": 0, "recommendation": "No anomalies detected. Good job!"}
         elif pending_count <= 2:
-            risk_score = 50
-            risk_level = "medium"
-            recommendation = f"Review {pending_count} pending anomaly(s)."
+            return {"risk_score": 50, "risk_level": "medium", "active_anomalies": pending_count, "recommendation": f"Review {pending_count} pending anomaly(s)."}
         else:
-            risk_score = 75
-            risk_level = "high"
-            recommendation = f"Urgent: Review {pending_count} pending anomalies."
-        
-        return {"risk_score": risk_score, "risk_level": risk_level, "active_anomalies": pending_count, "recommendation": recommendation}
-    except Exception as e:
-        print(f"Error: {e}")
+            return {"risk_score": 75, "risk_level": "high", "active_anomalies": pending_count, "recommendation": f"Urgent: Review {pending_count} pending anomalies."}
+    except:
         return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Unable to calculate"}
 
-
 # ============================================
-# KPI ENDPOINTS
+# KPI
 # ============================================
 @app.get("/api/dss/kpis")
 async def get_kpis(mode: str = "personal"):
@@ -437,7 +305,6 @@ async def get_kpis(mode: str = "personal"):
         {"id": 3, "title": "Burn Rate", "value": 15000, "change": 8, "trend": "up", "benchmark": 10000, "status": "critical", "recommendation": "Cut expenses"},
         {"id": 4, "title": "Savings Rate", "value": 18, "change": 3, "trend": "up", "benchmark": 20, "status": "warning", "recommendation": "Save more"}
     ]
-
 
 # ============================================
 # FORECASTS
@@ -449,12 +316,9 @@ async def get_trend(metric: str, days: int = 90):
     values = np.cumsum(np.random.normal(100, 500, days)) + base
     history = [{"date": dates[i], "actual": round(float(values[i]), 2)} for i in range(len(dates))]
     last = values[-1]
-    forecast_dates = [(datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 31)]
-    forecast_values = np.linspace(last, last * 1.05, 30)
-    for i in range(30):
-        history.append({"date": forecast_dates[i], "actual": None, "forecast": round(float(forecast_values[i]), 2)})
+    for i in range(1, 31):
+        history.append({"date": (datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d'), "actual": None, "forecast": round(last * (1 + 0.05 * i / 30), 2)})
     return {"metric": metric, "history": history, "anomalies": []}
-
 
 # ============================================
 # ANOMALIES
@@ -462,7 +326,6 @@ async def get_trend(metric: str, days: int = 90):
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 10):
     return [{"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"}][:limit]
-
 
 # ============================================
 # TRANSACTIONS
@@ -474,9 +337,8 @@ async def get_transactions(limit: int = 50):
         {"id": 2, "date": "2024-05-14", "description": "Salary", "amount": 5000, "category": "Income", "type": "income"},
     ][:limit]
 
-
 # ============================================
-# CLASSIFICATION FALLBACK
+# CLASSIFICATION
 # ============================================
 class TransactionToClassify(BaseModel):
     description: str
@@ -495,10 +357,10 @@ async def classify_transaction(transaction: TransactionToClassify):
         'Rent': ['rent', 'apartment', 'lease', 'property'],
         'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
     }
-    description_lower = transaction.description.lower()
-    for category, words in keywords.items():
-        if any(word in description_lower for word in words):
-            return {"category": category, "confidence": 0.7, "method": "keyword"}
+    desc = transaction.description.lower()
+    for cat, words in keywords.items():
+        if any(w in desc for w in words):
+            return {"category": cat, "confidence": 0.7, "method": "keyword"}
     if transaction.amount > 1000:
         return {"category": "Income", "confidence": 0.6, "method": "keyword"}
     return {"category": "Other", "confidence": 0.4, "method": "keyword"}
