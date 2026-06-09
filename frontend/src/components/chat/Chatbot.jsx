@@ -1,7 +1,7 @@
 // frontend/src/components/chat/Chatbot.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, X, Minimize2, Maximize2, Bot, User, HelpCircle, Sparkles, Loader } from 'lucide-react';
-import { sendChatMessage } from '../../services/chatService';
+import { sendChatMessage, fetchUserFinancialData } from '../../services/chatService';
 
 const Chatbot = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,7 +9,7 @@ const Chatbot = () => {
   const [messages, setMessages] = useState([
     { 
       id: 1, 
-      text: "Hello! I'm your AI Financial Assistant powered by Groq's Llama 3.3 70B model. I can help you understand any page or answer questions about your finances. Click the help button on any page or just ask me anything!", 
+      text: "Hello! I'm your AI Financial Assistant. I have access to your actual financial data. Ask me about your spending, savings, anomalies, or for personalized advice!", 
       sender: 'bot', 
       timestamp: new Date() 
     }
@@ -17,79 +17,86 @@ const Chatbot = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [context, setContext] = useState(null);
+  const [userData, setUserData] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Format message text with markdown-style formatting using Tailwind
+  // Format message text without double numbering
   const formatMessageText = (text) => {
     if (!text) return '';
     
     let formattedText = text;
     
-    // Format bold text: **text** to <strong class="font-bold text-purple-600">
+    // Fix double numbering (e.g., "1. 1." → "1.")
+    formattedText = formattedText.replace(/(\d+)\.\s+\1\./g, '$1.');
+    formattedText = formattedText.replace(/(\d+)\.\s+(\d+)\./g, (match, p1, p2) => {
+      if (p1 === p2) return `${p1}.`;
+      return match;
+    });
+    
+    // Format bold text
     formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-purple-600">$1</strong>');
     formattedText = formattedText.replace(/\*(.*?)\*/g, '<strong class="font-bold text-purple-600">$1</strong>');
     
-    // Format bullet points: • item or - item or * item
+    // Split into lines for list processing
     const lines = formattedText.split('\n');
+    const processedLines = [];
     let inList = false;
-    let processedLines = [];
+    let listType = null;
     
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i];
       
-      // Check for bullet points
-      if (line.match(/^[•\-\*]\s/)) {
-        if (!inList) {
-          processedLines.push('<ul class="list-disc list-inside space-y-1 my-2">');
+      // Check for numbered list (with proper numbering)
+      const numberedMatch = line.match(/^(\d+)\.\s+(.+)$/);
+      // Check for bullet list
+      const bulletMatch = line.match(/^[-•*]\s+(.+)$/);
+      
+      if (numberedMatch) {
+        if (!inList || listType !== 'numbered') {
+          if (inList) processedLines.push('</ol>');
+          processedLines.push('<ol class="list-decimal pl-5 my-2 space-y-1">');
           inList = true;
+          listType = 'numbered';
         }
-        processedLines.push(`<li class="text-sm text-gray-700">${line.substring(2)}</li>`);
+        processedLines.push(`<li class="text-sm text-gray-700">${numberedMatch[2]}</li>`);
       } 
-      // Check for numbered lists
-      else if (line.match(/^\d+\.\s/)) {
-        if (!inList) {
-          processedLines.push('<ol class="list-decimal list-inside space-y-1 my-2">');
+      else if (bulletMatch) {
+        if (!inList || listType !== 'bullet') {
+          if (inList) processedLines.push('</ul>');
+          processedLines.push('<ul class="list-disc pl-5 my-2 space-y-1">');
           inList = true;
+          listType = 'bullet';
         }
-        processedLines.push(`<li class="text-sm text-gray-700">${line}</li>`);
+        processedLines.push(`<li class="text-sm text-gray-700">${bulletMatch[1]}</li>`);
       }
-      // Regular text
       else {
         if (inList) {
-          if (line.trim() === '') {
-            // Close list on empty line
-            if (processedLines[processedLines.length - 1]?.includes('</ul>') === false && 
-                processedLines[processedLines.length - 1]?.includes('</ol>') === false) {
-              processedLines.push(line.match(/^\d+\.\s/) ? '</ol>' : '</ul>');
-            }
-            inList = false;
-          } else {
-            processedLines.push(line);
-          }
-        } else {
+          processedLines.push(listType === 'numbered' ? '</ol>' : '</ul>');
+          inList = false;
+          listType = null;
+        }
+        if (line.trim()) {
           processedLines.push(line);
+        } else {
+          processedLines.push('<br/>');
         }
       }
     }
     
-    // Close any open list
     if (inList) {
-      processedLines.push('</ul>');
+      processedLines.push(listType === 'numbered' ? '</ol>' : '</ul>');
     }
     
     formattedText = processedLines.join('\n');
     
-    // Convert line breaks to <br /> (but not inside lists)
-    formattedText = formattedText.replace(/\n/g, '<br />');
-    
-    // Clean up double <br /> tags
-    formattedText = formattedText.replace(/(<br \/>){2,}/g, '<br />');
+    // Convert line breaks
+    formattedText = formattedText.replace(/\n/g, '<br/>');
+    formattedText = formattedText.replace(/(<br\/>){3,}/g, '<br/><br/>');
     
     // Add emoji replacements
     formattedText = formattedText.replace(/:\)/g, '😊');
     formattedText = formattedText.replace(/:\(/g, '😢');
     formattedText = formattedText.replace(/:D/g, '😃');
-    formattedText = formattedText.replace(/<3/g, '❤️');
     
     return formattedText;
   };
@@ -103,6 +110,18 @@ const Chatbot = () => {
       description: getPageDescription(pageName)
     });
   }, [window.location.pathname]);
+
+  // Load user data for context-aware responses
+  useEffect(() => {
+    const loadUserData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const data = await fetchUserFinancialData(user.id);
+        setUserData(data);
+      }
+    };
+    loadUserData();
+  }, []);
 
   const getPageDescription = (page) => {
     const descriptions = {
@@ -158,9 +177,16 @@ const Chatbot = () => {
     try {
       const response = await sendChatMessage(input);
       
+      let responseText = response.response;
+      
+      // If we have user data, append confidence message
+      if (userData && responseText && !responseText.includes('Based on your')) {
+        responseText = `${responseText}\n\n*This recommendation is based on your actual financial data.*`;
+      }
+      
       const botMessage = { 
         id: Date.now() + 1, 
-        text: response.response, 
+        text: responseText, 
         sender: 'bot', 
         timestamp: new Date() 
       };
@@ -183,7 +209,7 @@ const Chatbot = () => {
     if (e.key === 'Enter') handleSend();
   };
 
-  // Render message with HTML formatting using Tailwind classes
+  // Render message with HTML formatting
   const renderMessage = (msg) => {
     const formattedHtml = formatMessageText(msg.text);
     
@@ -275,7 +301,7 @@ const Chatbot = () => {
                 <div className="bg-white border shadow-sm p-3 rounded-lg">
                   <div className="flex space-x-1 items-center">
                     <Loader className="w-4 h-4 text-purple-500 animate-spin" />
-                    <span className="text-xs text-gray-400">AI is thinking...</span>
+                    <span className="text-xs text-gray-400">Analyzing your data...</span>
                   </div>
                 </div>
               </div>
@@ -291,7 +317,7 @@ const Chatbot = () => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Ask about this page or your finances..."
+                placeholder="Ask about your finances..."
                 className="flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <button 
@@ -304,31 +330,24 @@ const Chatbot = () => {
             </div>
             <div className="flex justify-center mt-2 space-x-2">
               <button 
-                onClick={() => setInput("Explain this page")}
+                onClick={() => setInput("How much did I spend this month?")}
                 className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
               >
-                📖 Explain page
+                💰 My spending
               </button>
               <span className="text-gray-300">•</span>
               <button 
-                onClick={() => setInput("How much did I spend?")}
+                onClick={() => setInput("Show me my top spending categories")}
                 className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
               >
-                💰 Spending
+                📊 Top categories
               </button>
               <span className="text-gray-300">•</span>
               <button 
-                onClick={() => setInput("What's my balance?")}
+                onClick={() => setInput("How can I save more money?")}
                 className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
               >
-                💵 Balance
-              </button>
-              <span className="text-gray-300">•</span>
-              <button 
-                onClick={() => setInput("What AI model are you using?")}
-                className="text-xs text-gray-400 hover:text-purple-600 transition-colors"
-              >
-                🤖 About AI
+                💡 Saving tips
               </button>
             </div>
           </div>
