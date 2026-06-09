@@ -38,7 +38,6 @@ const PDFUploader = ({ onUploadComplete }) => {
   const extractTextFromImage = async (file) => {
     const worker = await createWorker('eng');
     
-    // Set up progress logging
     worker.setLogger(m => {
       if (m.status === 'recognizing text') {
         setOcrProgress(Math.floor(m.progress * 100));
@@ -61,6 +60,10 @@ const PDFUploader = ({ onUploadComplete }) => {
     // Extract total amount
     const totalMatch = text.match(/(?:Total|Amount Due)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)/i);
     data.total = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
+    
+    // Extract tax
+    const taxMatch = text.match(/(?:Tax|GST|VAT)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)/i);
+    data.tax = taxMatch ? parseFloat(taxMatch[1].replace(/,/g, '')) : 0;
     
     // Extract date
     const dateMatch = text.match(/(?:Date|Invoice Date)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i);
@@ -130,14 +133,8 @@ const PDFUploader = ({ onUploadComplete }) => {
         extractedText = await extractTextFromImage(file);
         toast.dismiss('ocr');
       } else {
-        // For PDFs, we'll create a simple text extraction
-        // For now, use a placeholder - the user can enter data manually
-        extractedText = `Invoice from ${file.name.replace(/\.[^/.]+$/, '')}`;
-      }
-      
-      if (!extractedText || extractedText.trim().length < 5) {
-        // If no text extracted, create a basic entry
-        extractedText = `Invoice: ${file.name}`;
+        // For PDFs/Word/Excel, try to extract filename info
+        extractedText = file.name;
       }
       
       // Extract invoice data
@@ -157,18 +154,20 @@ const PDFUploader = ({ onUploadComplete }) => {
         .from('invoices')
         .getPublicUrl(fileName);
 
+      // Match your invoices table schema exactly - NO file_name column
       const invoiceData = {
         user_id: user.id,
         vendor: extractedData.vendor,
         total_amount: extractedData.total,
-        tax: 0,
+        tax: extractedData.tax,
         date: extractedData.date,
         pdf_url: publicUrl,
         invoice_number: extractedData.invoiceNumber,
         extracted_data: extractedData,
-        status: 'pending',
-        file_name: file.name
+        status: 'pending'
       };
+
+      console.log('Saving invoice:', invoiceData);
 
       const { data: savedInvoice, error: dbError } = await supabase
         .from('invoices')
