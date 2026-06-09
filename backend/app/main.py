@@ -1,19 +1,74 @@
 ﻿# backend/app/main.py
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import os
 import re
 import io
-from supabase import create_client, Client
-from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
+from supabase import create_client, Client
+from groq import Groq
 
-from app.services.risk_service import RiskScoreService
+from app.services.hf_model_loader import hf_loader
 
-# Try to import optional dependencies
+# ============================================
+# ENVIRONMENT VARIABLES
+# ============================================
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
+print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
+
+# Initialize clients
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+# ============================================
+# FASTAPI APP
+# ============================================
+app = FastAPI(title="ProphetLedger API", version="1.0.0")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://prophetledger.vercel.app",
+        "https://prophet-ledger.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:3001"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================
+# AUTH HELPER FUNCTION
+# ============================================
+def get_current_user(request: Request):
+    """Get current authenticated user"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    
+    try:
+        user = supabase.auth.get_user(token)
+        return user.user
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+# ============================================
+# DEPENDENCIES FOR FILE PARSING
+# ============================================
 try:
     import PyPDF2
     PDF_SUPPORT = True
@@ -35,61 +90,11 @@ except ImportError:
     XLSX_SUPPORT = False
     print("⚠️ openpyxl not installed. Excel support disabled.")
 
-# Initialize clients
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-
-print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
-print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-
-app = FastAPI(title="ProphetLedger API", version="1.0.0")
-
-# CORS - Allow frontend domains
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://prophetledger.vercel.app",
-        "https://prophet-ledger.vercel.app",
-        "http://localhost:3000",
-        "http://localhost:3001"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # ============================================
-# HEALTH CHECK
+# INVOICE EXTRACTION FUNCTIONS
 # ============================================
-@app.get("/")
-def root():
-    return {
-        "message": "ProphetLedger API is running on Vercel!", 
-        "status": "healthy",
-        "version": "1.0.0"
-    }
-
-@app.get("/api/health")
-def health():
-    return {
-        "status": "healthy", 
-        "services": {
-            "supabase": supabase is not None,
-            "groq": groq_client is not None
-        },
-        "environment": "production"
-    }
-
-# ============================================
-# INVOICE PROCESSING ENDPOINTS (Direct in main.py)
-# ============================================
-
 def extract_text_from_pdf(file_content: bytes) -> str:
-    """Extract text from PDF using PyPDF2"""
     if not PDF_SUPPORT:
         return ""
     try:
@@ -104,8 +109,8 @@ def extract_text_from_pdf(file_content: bytes) -> str:
         print(f"PDF extraction error: {e}")
         return ""
 
+
 def extract_text_from_docx(file_content: bytes) -> str:
-    """Extract text from Word document"""
     if not DOCX_SUPPORT:
         return ""
     try:
@@ -121,8 +126,8 @@ def extract_text_from_docx(file_content: bytes) -> str:
         print(f"DOCX extraction error: {e}")
         return ""
 
+
 def extract_text_from_xlsx(file_content: bytes) -> str:
-    """Extract text from Excel file"""
     if not XLSX_SUPPORT:
         return ""
     try:
@@ -140,8 +145,8 @@ def extract_text_from_xlsx(file_content: bytes) -> str:
         print(f"XLSX extraction error: {e}")
         return ""
 
+
 def extract_invoice_data(text: str) -> dict:
-    """Extract invoice data using regex patterns"""
     data = {}
     
     if not text or len(text.strip()) < 10:
@@ -153,7 +158,6 @@ def extract_invoice_data(text: str) -> dict:
             'invoiceNumber': f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'
         }
     
-    # Extract vendor name
     vendor_patterns = [
         r'(?:Vendor|From|Company|Store|Merchant|Seller|Supplier)[:\s]+([^\n]+)',
         r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+Invoice',
@@ -167,7 +171,6 @@ def extract_invoice_data(text: str) -> dict:
     if 'vendor' not in data:
         data['vendor'] = 'Unknown'
 
-    # Extract total amount
     total_patterns = [
         r'(?:Total|Amount Due|Invoice Total|Grand Total|Balance Due)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
         r'(?:Total|Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
@@ -184,7 +187,6 @@ def extract_invoice_data(text: str) -> dict:
     if 'total' not in data:
         data['total'] = 0.0
 
-    # Extract tax
     tax_patterns = [
         r'(?:Tax|GST|VAT|HST)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
         r'(?:Sales Tax|Tax Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)'
@@ -200,7 +202,6 @@ def extract_invoice_data(text: str) -> dict:
     if 'tax' not in data:
         data['tax'] = 0.0
 
-    # Extract date
     date_patterns = [
         r'(?:Date|Invoice Date|Issue Date|Created)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
         r'(?:Date)[:\s]+(\d{4}-\d{2}-\d{2})',
@@ -214,7 +215,6 @@ def extract_invoice_data(text: str) -> dict:
     if 'date' not in data:
         data['date'] = datetime.now().strftime('%Y-%m-%d')
 
-    # Extract invoice number
     inv_patterns = [
         r'(?:Invoice|Invoice Number|INV|Bill|Receipt Number)[:\s#]+([A-Z0-9-]+)',
         r'Invoice\s*#?\s*([A-Z0-9-]+)',
@@ -231,46 +231,55 @@ def extract_invoice_data(text: str) -> dict:
     return data
 
 
+# ============================================
+# HEALTH & MODEL STATUS
+# ============================================
+@app.get("/")
+def root():
+    return {"message": "ProphetLedger API is running!", "status": "healthy", "version": "1.0.0"}
+
+@app.get("/api/health")
+def health():
+    return {
+        "status": "healthy",
+        "services": {"supabase": supabase is not None, "groq": groq_client is not None},
+        "environment": "production"
+    }
+
+@app.get("/api/models/status")
+async def get_model_status():
+    return hf_loader.get_model_status()
+
+
+# ============================================
+# INVOICE ENDPOINTS
+# ============================================
 @app.post("/api/invoices/extract-text")
 async def extract_text_only(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    """Extract raw text from uploaded file (PDF, DOCX, XLSX)"""
     try:
         contents = await file.read()
         file_type = file.content_type
         text = ""
         
-        print(f"Processing file: {file.filename}, Type: {file_type}, Size: {len(contents)} bytes")
-        
         if file_type == 'application/pdf':
             text = extract_text_from_pdf(contents)
-        elif file_type in [
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/msword'
-        ]:
+        elif file_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
             text = extract_text_from_docx(contents)
-        elif file_type in [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-excel'
-        ]:
+        elif file_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel']:
             text = extract_text_from_xlsx(contents)
         else:
-            # Try to decode as plain text
             text = contents.decode('utf-8', errors='ignore')
         
         if not text or len(text.strip()) < 10:
             raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
         
-        print(f"Extracted {len(text)} characters from {file.filename}")
-        
         return {"text": text, "filename": file.filename, "file_type": file_type}
-        
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Extraction error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
 
 
@@ -278,27 +287,20 @@ async def extract_text_only(
 async def process_invoice(
     file: UploadFile = File(...),
     extracted_text: str = Form(...),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    """Process extracted text and return structured invoice data"""
     try:
         extracted_data = extract_invoice_data(extracted_text)
-        
         extracted_data['file_name'] = file.filename
         extracted_data['file_type'] = file.content_type
         extracted_data['extraction_method'] = 'regex'
-        extracted_data['text_length'] = len(extracted_text)
-        
-        print(f"Successfully extracted: Vendor={extracted_data['vendor']}, Total={extracted_data['total']}")
-        
         return extracted_data
-        
     except Exception as e:
-        print(f"Processing error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to process invoice data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to process invoice: {str(e)}")
+
 
 # ============================================
-# AUTH ENDPOINTS (Supabase)
+# AUTH ENDPOINTS
 # ============================================
 class LoginRequest(BaseModel):
     email: str
@@ -309,53 +311,24 @@ class RegisterRequest(BaseModel):
     full_name: str
     password: str
 
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    full_name: str
-    role: str
-    mode_preference: str
-
-def get_current_user(request: Request):
-    """Get current authenticated user"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    token = auth_header.replace("Bearer ", "")
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    try:
-        user = supabase.auth.get_user(token)
-        return user.user
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
 @app.post("/api/auth/register")
 async def register(request: RegisterRequest):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
-    
     try:
         response = supabase.auth.sign_up({
             "email": request.email,
             "password": request.password,
-            "options": {
-                "data": {"full_name": request.full_name}
-            }
+            "options": {"data": {"full_name": request.full_name}}
         })
         return {"message": "User created successfully", "user_id": response.user.id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured")
-    
     try:
         response = supabase.auth.sign_in_with_password({
             "email": request.email,
@@ -375,9 +348,8 @@ async def login(request: LoginRequest):
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-
 @app.get("/api/auth/me")
-async def get_current_user_route(current_user = Depends(get_current_user)):
+async def get_current_user_route(current_user=Depends(get_current_user)):
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -385,97 +357,74 @@ async def get_current_user_route(current_user = Depends(get_current_user)):
         "is_active": True
     }
 
+
 # ============================================
-# CHATBOT ENDPOINT (Groq API)
+# CHATBOT ENDPOINT
 # ============================================
 class ChatRequest(BaseModel):
     query: str
-    user_id: Optional[str] = None
 
 @app.post("/api/chatbot/query")
 async def chat(request: ChatRequest):
     if not groq_client:
-        return mock_chat_response(request.query)
-    
+        return {"query": request.query, "response": "Chatbot unavailable", "intent": "error", "confidence": 0}
     try:
         completion = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful financial assistant for ProphetLedger. Help users with their financial questions about spending, balance, forecasts, and anomalies. Keep responses concise and actionable."
-                },
-                {
-                    "role": "user",
-                    "content": request.query
-                }
+                {"role": "system", "content": "You are a helpful financial assistant."},
+                {"role": "user", "content": request.query}
             ],
             temperature=0.7,
             max_tokens=500
         )
-        
-        return {
-            "query": request.query,
-            "response": completion.choices[0].message.content,
-            "intent": "llm",
-            "confidence": 0.95
-        }
+        return {"query": request.query, "response": completion.choices[0].message.content, "intent": "llm", "confidence": 0.95}
     except Exception as e:
-        return mock_chat_response(request.query)
+        return {"query": request.query, "response": str(e), "intent": "error", "confidence": 0}
 
-def mock_chat_response(query):
-    lower_query = query.lower()
-    if "spent" in lower_query or "spend" in lower_query:
-        return {"query": query, "response": "You've spent $3,247 in the last 30 days. Your top category is Dining at $780.", "intent": "spending", "confidence": 0.8}
-    elif "balance" in lower_query:
-        return {"query": query, "response": "Your current balance is $12,845.", "intent": "balance", "confidence": 0.9}
-    elif "forecast" in lower_query or "predict" in lower_query:
-        return {"query": query, "response": "Based on your patterns, next month you'll spend around $3,200.", "intent": "forecast", "confidence": 0.85}
-    else:
-        return {"query": query, "response": "I can help with spending, balances, forecasts, and anomalies. Try asking 'How much did I spend on food?'", "intent": "unknown", "confidence": 0.5}
 
 # ============================================
-# TRANSACTIONS ENDPOINTS
+# RISK SCORE ENDPOINT (DYNAMIC)
 # ============================================
-@app.get("/api/transactions")
-async def get_transactions(limit: int = 50):
-    return [
-        {"id": 1, "date": "2024-05-15", "description": "Starbucks", "amount": 5.75, "category": "Dining", "type": "expense"},
-        {"id": 2, "date": "2024-05-14", "description": "Salary", "amount": 5000, "category": "Income", "type": "income"},
-    ][:limit]
-
-@app.post("/api/transactions")
-async def create_transaction(transaction: dict):
-    return {"message": "Transaction created", "id": 999}
-
-# ============================================
-# FORECAST ENDPOINTS
-# ============================================
-@app.get("/api/forecasts/trend/{metric}")
-async def get_trend(metric: str, days: int = 90):
-    dates = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days, 0, -1)]
-    base = 50000 if metric == "cashflow" else 32000
-    values = np.cumsum(np.random.normal(100, 500, days)) + base
+@app.get("/api/dss/risk/score")
+async def get_risk_score(request: Request):
+    if not supabase:
+        return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Risk scoring unavailable"}
     
-    history = [{"date": dates[i], "actual": round(float(values[i]), 2)} for i in range(len(dates))]
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Please login"}
     
-    last = values[-1]
-    forecast_dates = [(datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 31)]
-    forecast_values = np.linspace(last, last * 1.05, 30)
+    token = auth_header.replace("Bearer ", "")
+    try:
+        user_data = supabase.auth.get_user(token)
+        user_id = user_data.user.id
+    except:
+        return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Invalid token"}
     
-    for i in range(30):
-        history.append({"date": forecast_dates[i], "actual": None, "forecast": round(float(forecast_values[i]), 2)})
-    
-    return {"metric": metric, "history": history, "anomalies": []}
+    try:
+        anomalies_response = supabase.table("anomalies").select("id, anomaly_score, status").eq("user_id", user_id).execute()
+        anomalies = anomalies_response.data or []
+        pending_count = len([a for a in anomalies if a.get('status') == 'pending'])
+        
+        if pending_count == 0:
+            risk_score = 25
+            risk_level = "low"
+            recommendation = "No anomalies detected. Good job!"
+        elif pending_count <= 2:
+            risk_score = 50
+            risk_level = "medium"
+            recommendation = f"Review {pending_count} pending anomaly(s)."
+        else:
+            risk_score = 75
+            risk_level = "high"
+            recommendation = f"Urgent: Review {pending_count} pending anomalies."
+        
+        return {"risk_score": risk_score, "risk_level": risk_level, "active_anomalies": pending_count, "recommendation": recommendation}
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"risk_score": 50, "risk_level": "medium", "active_anomalies": 0, "recommendation": "Unable to calculate"}
 
-# ============================================
-# ANOMALY DETECTION
-# ============================================
-@app.get("/api/anomalies")
-async def get_anomalies(limit: int = 10):
-    return [
-        {"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"},
-    ][:limit]
 
 # ============================================
 # KPI ENDPOINTS
@@ -485,90 +434,71 @@ async def get_kpis(mode: str = "personal"):
     return [
         {"id": 1, "title": "Financial Health", "value": 78, "change": 5.2, "trend": "up", "benchmark": 75, "status": "good", "recommendation": "Keep saving!"},
         {"id": 2, "title": "Cash Runway", "value": 12, "change": -2, "trend": "down", "benchmark": 12, "status": "warning", "recommendation": "Watch spending"},
+        {"id": 3, "title": "Burn Rate", "value": 15000, "change": 8, "trend": "up", "benchmark": 10000, "status": "critical", "recommendation": "Cut expenses"},
+        {"id": 4, "title": "Savings Rate", "value": 18, "change": 3, "trend": "up", "benchmark": 20, "status": "warning", "recommendation": "Save more"}
     ]
 
 
-# backend/app/main.py - Add this endpoint (replace any existing /api/dss/risk/score)
+# ============================================
+# FORECASTS
+# ============================================
+@app.get("/api/forecasts/trend/{metric}")
+async def get_trend(metric: str, days: int = 90):
+    dates = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days, 0, -1)]
+    base = 50000 if metric == "cashflow" else 32000
+    values = np.cumsum(np.random.normal(100, 500, days)) + base
+    history = [{"date": dates[i], "actual": round(float(values[i]), 2)} for i in range(len(dates))]
+    last = values[-1]
+    forecast_dates = [(datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 31)]
+    forecast_values = np.linspace(last, last * 1.05, 30)
+    for i in range(30):
+        history.append({"date": forecast_dates[i], "actual": None, "forecast": round(float(forecast_values[i]), 2)})
+    return {"metric": metric, "history": history, "anomalies": []}
 
-@app.get("/api/dss/risk/score")
-async def get_risk_score(request: Request):
-    """Calculate dynamic risk score based on anomalies and transactions"""
-    
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    
-    # Get current user
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    token = auth_header.replace("Bearer ", "")
-    try:
-        user_data = supabase.auth.get_user(token)
-        user_id = user_data.user.id
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    try:
-        # Fetch anomalies count
-        anomalies_response = supabase.table("anomalies")\
-            .select("id, anomaly_score, status")\
-            .eq("user_id", user_id)\
-            .execute()
-        
-        anomalies = anomalies_response.data or []
-        pending_count = len([a for a in anomalies if a.get('status') == 'pending'])
-        total_count = len(anomalies)
-        
-        # Calculate average anomaly score
-        if anomalies:
-            avg_score = sum(a.get('anomaly_score', 0) or 0 for a in anomalies) / total_count
-            max_score = max(a.get('anomaly_score', 0) or 0 for a in anomalies)
-            anomaly_severity = (avg_score * 0.4 + max_score * 0.6)
-        else:
-            anomaly_severity = 0
-        
-        # Calculate risk score based on anomalies
-        if pending_count == 0:
-            base_score = max(10, anomaly_severity * 0.5)
-        else:
-            base_score = min(90, (pending_count * 10) + (anomaly_severity * 0.7))
-        
-        # Add ML model influence if available
-        model = hf_loader.load_isolation_forest()
-        if model:
-            base_score = min(95, base_score + 5)  # Boost if ML available
-        
-        risk_score = round(base_score)
-        
-        # Determine risk level
-        if risk_score >= 70:
-            risk_level = "high"
-            recommendation = f"⚠️ High risk detected. Review {pending_count} pending anomalies."
-        elif risk_score >= 40:
-            risk_level = "medium"
-            recommendation = f"📊 Medium risk level. Monitor your {pending_count} pending anomalies."
-        else:
-            risk_level = "low"
-            recommendation = "✅ Low risk level. Your financial behavior is stable."
-        
-        return {
-            "risk_score": risk_score,
-            "risk_level": risk_level,
-            "active_anomalies": pending_count,
-            "total_anomalies": total_count,
-            "recommendation": recommendation,
-            "trend": "stable"
-        }
-        
-    except Exception as e:
-        print(f"Risk score error: {e}")
-        # Fallback response
-        return {
-            "risk_score": 50,
-            "risk_level": "medium",
-            "active_anomalies": 0,
-            "total_anomalies": 0,
-            "recommendation": "Unable to calculate risk score at this time",
-            "trend": "stable"
-        }
+
+# ============================================
+# ANOMALIES
+# ============================================
+@app.get("/api/anomalies")
+async def get_anomalies(limit: int = 10):
+    return [{"id": 1, "date": "2024-05-15", "description": "Amazon Purchase", "amount": 1249.99, "category": "Shopping", "anomaly_score": 92, "status": "pending"}][:limit]
+
+
+# ============================================
+# TRANSACTIONS
+# ============================================
+@app.get("/api/transactions")
+async def get_transactions(limit: int = 50):
+    return [
+        {"id": 1, "date": "2024-05-15", "description": "Starbucks", "amount": 5.75, "category": "Dining", "type": "expense"},
+        {"id": 2, "date": "2024-05-14", "description": "Salary", "amount": 5000, "category": "Income", "type": "income"},
+    ][:limit]
+
+
+# ============================================
+# CLASSIFICATION FALLBACK
+# ============================================
+class TransactionToClassify(BaseModel):
+    description: str
+    amount: float
+
+@app.post("/api/transactions/classify")
+async def classify_transaction(transaction: TransactionToClassify):
+    keywords = {
+        'Groceries': ['walmart', 'target', 'kroger', 'costco', 'aldi', 'whole foods'],
+        'Dining': ['starbucks', 'mcdonalds', 'chipotle', 'restaurant', 'cafe', 'burger', 'pizza'],
+        'Transport': ['uber', 'lyft', 'taxi', 'gas', 'shell', 'exxon', 'parking'],
+        'Utilities': ['electric', 'water', 'internet', 'phone', 'comcast', 'att', 'verizon'],
+        'Entertainment': ['netflix', 'spotify', 'disney', 'hulu', 'cinema', 'movie'],
+        'Shopping': ['amazon', 'ebay', 'nike', 'adidas', 'clothing', 'shoes', 'best buy'],
+        'Health': ['doctor', 'dental', 'hospital', 'pharmacy', 'gym'],
+        'Rent': ['rent', 'apartment', 'lease', 'property'],
+        'Income': ['salary', 'payroll', 'deposit', 'freelance', 'payment']
+    }
+    description_lower = transaction.description.lower()
+    for category, words in keywords.items():
+        if any(word in description_lower for word in words):
+            return {"category": category, "confidence": 0.7, "method": "keyword"}
+    if transaction.amount > 1000:
+        return {"category": "Income", "confidence": 0.6, "method": "keyword"}
+    return {"category": "Other", "confidence": 0.4, "method": "keyword"}
