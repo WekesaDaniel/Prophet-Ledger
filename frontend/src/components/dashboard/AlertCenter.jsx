@@ -9,7 +9,6 @@ const AlertCenter = () => {
   const [expanded, setExpanded] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [lastCheck, setLastCheck] = useState(null);
-  const [markingAll, setMarkingAll] = useState(false);
 
   // Create anomaly alert
   const createAnomalyAlert = async (anomaly, userId) => {
@@ -31,9 +30,8 @@ const AlertCenter = () => {
       .single();
 
     if (!existing) {
-      const { error } = await supabase.from('alerts').insert([alertData]);
-      if (error) console.error('Error creating anomaly alert:', error);
-      return !error;
+      await supabase.from('alerts').insert([alertData]);
+      return true;
     }
     return false;
   };
@@ -279,8 +277,8 @@ const AlertCenter = () => {
       }
 
       // Check for high spending (over 50% of monthly target)
-      const monthlyTarget = totalIncome * 0.7;
-      const categoryTarget = monthlyTarget / 5;
+      const monthlyTarget = totalIncome * 0.7; // 70% of income as spending target
+      const categoryTarget = monthlyTarget / 5; // Spread across top 5 categories
       
       const categoryTotals = {};
       transactions?.filter(t => t.type === 'expense').forEach(t => {
@@ -305,7 +303,7 @@ const AlertCenter = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Check for new alerts (but don't recreate old ones)
+      // Check for new alerts
       await checkAndCreateAlerts(user.id);
 
       // Fetch all alerts
@@ -314,15 +312,13 @@ const AlertCenter = () => {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(30);
 
       if (error) throw error;
 
       if (data && data.length > 0) {
         setAlerts(data);
-        // Count unread alerts (read === false)
-        const unread = data.filter(a => a.read === false).length;
-        setUnreadCount(unread);
+        setUnreadCount(data.filter(a => !a.read).length);
       } else {
         // Create default welcome alert if none exist
         const welcomeAlert = {
@@ -344,17 +340,12 @@ const AlertCenter = () => {
   const markAsRead = async (alertId) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      // Handle welcome alert (local only)
-      if (alertId === 'welcome') {
-        setAlerts(prev => prev.map(a => 
-          a.id === alertId ? { ...a, read: true } : a
-        ));
+      if (!user || alertId === 'welcome') {
+        setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a));
         setUnreadCount(prev => Math.max(0, prev - 1));
         return;
       }
 
-      // Update in database
       const { error } = await supabase
         .from('alerts')
         .update({ read: true })
@@ -363,45 +354,30 @@ const AlertCenter = () => {
 
       if (error) throw error;
 
-      // Update local state
-      setAlerts(prev => prev.map(a => 
-        a.id === alertId ? { ...a, read: true } : a
-      ));
+      setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a));
       setUnreadCount(prev => Math.max(0, prev - 1));
-      
     } catch (error) {
       console.error('Failed to mark alert as read:', error);
-      toast.error('Failed to mark alert as read');
     }
   };
 
   const markAllAsRead = async () => {
-    if (markingAll) return;
-    setMarkingAll(true);
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No user');
+      if (user) {
+        const { error } = await supabase
+          .from('alerts')
+          .update({ read: true })
+          .eq('user_id', user.id)
+          .eq('read', false);
 
-      // Update all unread alerts in database
-      const { error } = await supabase
-        .from('alerts')
-        .update({ read: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
-
-      if (error) throw error;
-
-      // Update local state - mark all as read
+        if (error) throw error;
+      }
       setAlerts(prev => prev.map(a => ({ ...a, read: true })));
       setUnreadCount(0);
       toast.success('All alerts marked as read');
-      
     } catch (error) {
       console.error('Failed to mark all as read:', error);
-      toast.error('Failed to mark alerts as read');
-    } finally {
-      setMarkingAll(false);
     }
   };
 
@@ -453,10 +429,9 @@ const AlertCenter = () => {
               {unreadCount > 0 && (
                 <button 
                   onClick={markAllAsRead}
-                  disabled={markingAll}
-                  className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                  className="text-xs text-blue-600 hover:text-blue-800"
                 >
-                  {markingAll ? '...' : 'Mark all read'}
+                  Mark all read
                 </button>
               )}
               <button onClick={() => setExpanded(false)}>
