@@ -32,9 +32,13 @@ const PDFUploader = ({ onUploadComplete }) => {
   const [uploadStatus, setUploadStatus] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
 
-  // Get API URL
+  // Get API URL - use relative path for production, full URL for development
   const getApiUrl = () => {
-    return process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api';
+    // In production, use relative path (Vercel handles routing)
+    if (process.env.NODE_ENV === 'production') {
+      return '/api';
+    }
+    return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
   };
 
   // Extract text from file using backend (handles PDF, DOCX, XLSX, Images)
@@ -46,12 +50,12 @@ const PDFUploader = ({ onUploadComplete }) => {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: formData
+      }
+      // Don't set Content-Type header for FormData (browser sets it with boundary)
     });
     
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => ({ detail: 'Extraction failed' }));
       throw new Error(error.detail || 'Extraction failed');
     }
     const data = await response.json();
@@ -72,7 +76,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     });
     
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => ({ detail: 'Processing failed' }));
       throw new Error(error.detail || 'Processing failed');
     }
     return response.json();
@@ -81,7 +85,7 @@ const PDFUploader = ({ onUploadComplete }) => {
   const onDrop = useCallback(async (acceptedFiles, fileRejections) => {
     if (fileRejections && fileRejections.length > 0) {
       const rejection = fileRejections[0];
-      toast.error(rejection.errors[0].message || 'File upload failed');
+      toast.error(rejection.errors[0]?.message || 'File upload failed');
       return;
     }
 
@@ -122,9 +126,9 @@ const PDFUploader = ({ onUploadComplete }) => {
 
     try {
       // Extract text from file using backend (handles all formats)
-      toast.loading('Processing file...', { id: 'process' });
+      const loadingToast = toast.loading('Processing file...');
       const extractedText = await extractTextFromFile(file);
-      toast.dismiss('process');
+      toast.dismiss(loadingToast);
       
       if (!extractedText || extractedText.trim().length < 10) {
         throw new Error('Could not extract sufficient text from file');
@@ -169,7 +173,7 @@ const PDFUploader = ({ onUploadComplete }) => {
       if (dbError) throw dbError;
 
       setUploadStatus('success');
-      toast.success(`Invoice scanned successfully!`);
+      toast.success('Invoice scanned successfully!');
       
       if (onUploadComplete) onUploadComplete(savedInvoice);
     } catch (error) {
