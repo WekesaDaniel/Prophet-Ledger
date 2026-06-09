@@ -8,6 +8,7 @@ import {
 import api from '../../services/api';
 import { supabase } from '../../services/supabaseClient';
 import toast from 'react-hot-toast';
+import { hf_loader } from '../../services/hf_model_loader';
 
 const AnomalyTable = ({ limit = null }) => {
   const [anomalies, setAnomalies] = useState([]);
@@ -25,6 +26,7 @@ const AnomalyTable = ({ limit = null }) => {
     reviewedCount: 0,
     avgRiskScore: 0
   });
+  const [mlModelStatus, setMlModelStatus] = useState({ isolation_forest: false, scaler: false });
 
   // Normalize category names for consistency
   const normalizeCategory = (cat) => {
@@ -34,14 +36,29 @@ const AnomalyTable = ({ limit = null }) => {
 
   useEffect(() => {
     fetchData();
+    checkMLModelStatus();
   }, []);
+
+  const checkMLModelStatus = async () => {
+    try {
+      // Check if ML models are available via backend
+      const response = await api.get('/models/status');
+      setMlModelStatus(response.data);
+    } catch (error) {
+      console.error('ML model status check failed:', error);
+      // Use local HF loader as fallback
+      setMlModelStatus({
+        isolation_forest: hf_loader.load_isolation_forest() !== null,
+        scaler: hf_loader.load_scaler() !== null
+      });
+    }
+  };
 
   const fetchData = async () => {
     await Promise.all([
       fetchAnomalies(),
       fetchUserLimits(),
-      fetchStats(),
-      checkTransactionsAgainstLimits()
+      fetchStats()
     ]);
   };
 
@@ -88,6 +105,72 @@ const AnomalyTable = ({ limit = null }) => {
       setUserLimits(data || []);
     } catch (error) {
       console.error('Failed to fetch limits:', error);
+    }
+  };
+
+  // Check all transactions against a specific limit (for when new limit is added)
+  const checkTransactionsAgainstNewLimit = async (category, limitAmountValue) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const normalizedCat = normalizeCategory(category);
+      
+      // Get all transactions for this category (not just last 30 days)
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'expense')
+        .eq('category', normalizedCat);
+
+      if (error) throw error;
+
+      const newAnomalies = [];
+
+      for (const transaction of transactions || []) {
+        if (transaction.amount > limitAmountValue) {
+          // Check if anomaly already exists for this transaction
+          const { data: existing } = await supabase
+            .from('anomalies')
+            .select('id')
+            .eq('transaction_id', transaction.id)
+            .single();
+
+          if (!existing) {
+            const excessPercent = ((transaction.amount - limitAmountValue) / limitAmountValue) * 100;
+            newAnomalies.push({
+              user_id: user.id,
+              transaction_id: transaction.id,
+              amount: transaction.amount,
+              description: transaction.description,
+              category: normalizedCat,
+              anomaly_score: Math.min(95, 50 + Math.floor(excessPercent / 2)),
+              reason: `Transaction of $${transaction.amount.toLocaleString()} exceeded your $${limitAmountValue} limit for ${normalizedCat} by ${Math.round(excessPercent)}%`,
+              status: 'pending',
+              created_at: transaction.date
+            });
+          }
+        }
+      }
+
+      // Insert new anomalies
+      if (newAnomalies.length > 0) {
+        const { error: insertError } = await supabase
+          .from('anomalies')
+          .insert(newAnomalies);
+
+        if (insertError) throw insertError;
+        
+        toast.success(`Found ${newAnomalies.length} past transaction(s) exceeding this limit. Added to anomalies.`);
+      }
+
+      // Refresh anomalies list
+      await fetchAnomalies();
+      await fetchStats();
+      
+    } catch (error) {
+      console.error('Failed to check transactions against new limit:', error);
     }
   };
 
@@ -190,6 +273,22 @@ const AnomalyTable = ({ limit = null }) => {
     }
   };
 
+  // Use ML model for anomaly detection if available
+  const detectAnomalyWithML = async (transaction) => {
+    try {
+      const response = await api.post('/anomalies/detect', {
+        amount: transaction.amount,
+        frequency: 1,
+        category: transaction.category,
+        description: transaction.description
+      });
+      return response.data;
+    } catch (error) {
+      console.error('ML anomaly detection failed:', error);
+      return null;
+    }
+  };
+
   const checkTransactionsForStatisticalAnomalies = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -226,7 +325,27 @@ const AnomalyTable = ({ limit = null }) => {
         const cat = normalizeCategory(transaction.category);
         const catData = categorySpending.get(cat);
         
-        if (catData && catData.count > 2) {
+        // First check with ML model if available
+        let mlResult = null;
+        if (mlModelStatus.isolation_forest) {
+          mlResult = await detectAnomalyWithML(transaction);
+        }
+        
+        if (mlResult && mlResult.is_anomaly) {
+          // Use ML model result
+          newAnomalies.push({
+            user_id: user.id,
+            transaction_id: transaction.id,
+            amount: transaction.amount,
+            description: transaction.description,
+            category: cat,
+            anomaly_score: mlResult.anomaly_score,
+            reason: mlResult.reason || `ML model detected anomaly with score ${mlResult.anomaly_score}`,
+            status: 'pending',
+            created_at: transaction.date
+          });
+        } else if (catData && catData.count > 2) {
+          // Fallback to statistical method
           const avg = catData.sum / catData.count;
           const stdDev = Math.sqrt(
             catData.amounts.reduce((sum, amt) => sum + Math.pow(amt - avg, 2), 0) / catData.count
@@ -303,12 +422,15 @@ const AnomalyTable = ({ limit = null }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
 
+      const normalizedCategory = normalizeCategory(selectedCategory);
+      const limitValue = parseFloat(limitAmount);
+
       const { error } = await supabase
         .from('user_limits')
         .upsert({
           user_id: user.id,
-          category: selectedCategory,
-          limit_amount: parseFloat(limitAmount),
+          category: normalizedCategory,
+          limit_amount: limitValue,
           period: limitPeriod,
           is_active: true,
           updated_at: new Date().toISOString()
@@ -318,12 +440,16 @@ const AnomalyTable = ({ limit = null }) => {
 
       if (error) throw error;
 
-      toast.success(`Limit of $${limitAmount} set for ${selectedCategory}`);
+      toast.success(`Limit of $${limitAmount} set for ${normalizedCategory}`);
+      
+      // IMPORTANT: Check existing transactions against this new limit
+      await checkTransactionsAgainstNewLimit(normalizedCategory, limitValue);
+      
       setShowLimitModal(false);
       setSelectedCategory('');
       setLimitAmount('');
       await fetchUserLimits();
-      await checkTransactionsAgainstLimits();
+      
     } catch (error) {
       console.error('Failed to set limit:', error);
       toast.error('Failed to set limit');
@@ -380,6 +506,14 @@ const AnomalyTable = ({ limit = null }) => {
 
   return (
     <>
+      {/* ML Model Status Indicator */}
+      {mlModelStatus.isolation_forest && (
+        <div className="mb-4 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 flex items-center gap-2">
+          <Shield className="w-3 h-3" />
+          AI-powered anomaly detection active
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4 text-center">
@@ -496,7 +630,7 @@ const AnomalyTable = ({ limit = null }) => {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
-                      <p className="text-xs">{anomaly.reason || 'Unusual pattern detected'}</p>
+                      <p className="text-xs whitespace-pre-wrap">{anomaly.reason || 'Unusual pattern detected'}</p>
                     </td>
                     <td className="px-4 py-3">
                       {anomaly.status === 'pending' ? (
@@ -613,6 +747,11 @@ const AnomalyTable = ({ limit = null }) => {
               </select>
             </div>
             
+            <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+              <p className="font-medium">Note:</p>
+              <p>When you set a limit, we'll automatically check all existing transactions and flag any that exceed this limit as anomalies.</p>
+            </div>
+            
             <div className="flex gap-3 pt-4">
               <button
                 onClick={() => setShowLimitModal(false)}
@@ -624,7 +763,7 @@ const AnomalyTable = ({ limit = null }) => {
                 onClick={handleSetLimit}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
-                Set Limit
+                Set Limit & Check Transactions
               </button>
             </div>
           </div>
