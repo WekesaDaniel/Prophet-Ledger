@@ -44,6 +44,249 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ============================================
+# INVOICE TEXT EXTRACTION ENDPOINTS
+# ============================================
+
+import re
+import io
+from fastapi import UploadFile, File, Form
+
+# Try to import optional dependencies for file parsing
+try:
+    import PyPDF2
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
+    print("⚠️ PyPDF2 not installed. PDF support disabled.")
+
+try:
+    from docx import Document
+    DOCX_SUPPORT = True
+except ImportError:
+    DOCX_SUPPORT = False
+    print("⚠️ python-docx not installed. Word document support disabled.")
+
+try:
+    import openpyxl
+    XLSX_SUPPORT = True
+except ImportError:
+    XLSX_SUPPORT = False
+    print("⚠️ openpyxl not installed. Excel support disabled.")
+
+
+def extract_text_from_pdf(file_content: bytes) -> str:
+    """Extract text from PDF using PyPDF2"""
+    if not PDF_SUPPORT:
+        return ""
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+        text = ""
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text
+    except Exception as e:
+        print(f"PDF extraction error: {e}")
+        return ""
+
+
+def extract_text_from_docx(file_content: bytes) -> str:
+    """Extract text from Word document"""
+    if not DOCX_SUPPORT:
+        return ""
+    try:
+        doc = Document(io.BytesIO(file_content))
+        text = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text])
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " ".join([cell.text for cell in row.cells if cell.text])
+                if row_text:
+                    text += "\n" + row_text
+        return text
+    except Exception as e:
+        print(f"DOCX extraction error: {e}")
+        return ""
+
+
+def extract_text_from_xlsx(file_content: bytes) -> str:
+    """Extract text from Excel file"""
+    if not XLSX_SUPPORT:
+        return ""
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
+        text = ""
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+            text += f"\n--- Sheet: {sheet_name} ---\n"
+            for row in sheet.iter_rows(values_only=True):
+                row_text = " ".join([str(cell) for cell in row if cell])
+                if row_text:
+                    text += row_text + "\n"
+        return text
+    except Exception as e:
+        print(f"XLSX extraction error: {e}")
+        return ""
+
+
+def extract_invoice_data(text: str) -> dict:
+    """Extract invoice data using regex patterns"""
+    data = {}
+    
+    if not text or len(text.strip()) < 10:
+        return {
+            'vendor': 'Unknown',
+            'total': 0.0,
+            'tax': 0.0,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'invoiceNumber': f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'
+        }
+    
+    # Extract vendor name
+    vendor_patterns = [
+        r'(?:Vendor|From|Company|Store|Merchant|Seller|Supplier)[:\s]+([^\n]+)',
+        r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+Invoice',
+        r'Bill To:?\s*([^\n]+)',
+    ]
+    for pattern in vendor_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            data['vendor'] = match.group(1).strip()[:100]
+            break
+    if 'vendor' not in data:
+        data['vendor'] = 'Unknown'
+
+    # Extract total amount
+    total_patterns = [
+        r'(?:Total|Amount Due|Invoice Total|Grand Total|Balance Due)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
+        r'(?:Total|Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
+        r'[\$£€]\s*([\d,]+\.?\d*)\s*(?:Total|Amount)',
+    ]
+    for pattern in total_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                data['total'] = float(match.group(1).replace(',', ''))
+                break
+            except:
+                continue
+    if 'total' not in data:
+        data['total'] = 0.0
+
+    # Extract tax
+    tax_patterns = [
+        r'(?:Tax|GST|VAT|HST)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)',
+        r'(?:Sales Tax|Tax Amount)[:\s]*[\$£€]?\s*([\d,]+\.?\d*)'
+    ]
+    for pattern in tax_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                data['tax'] = float(match.group(1).replace(',', ''))
+                break
+            except:
+                continue
+    if 'tax' not in data:
+        data['tax'] = 0.0
+
+    # Extract date
+    date_patterns = [
+        r'(?:Date|Invoice Date|Issue Date|Created)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
+        r'(?:Date)[:\s]+(\d{4}-\d{2}-\d{2})',
+        r'(\d{1,2}/\d{1,2}/\d{4})',
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            data['date'] = match.group(1)
+            break
+    if 'date' not in data:
+        data['date'] = datetime.now().strftime('%Y-%m-%d')
+
+    # Extract invoice number
+    inv_patterns = [
+        r'(?:Invoice|Invoice Number|INV|Bill|Receipt Number)[:\s#]+([A-Z0-9-]+)',
+        r'Invoice\s*#?\s*([A-Z0-9-]+)',
+        r'INV-\d+',
+    ]
+    for pattern in inv_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            data['invoiceNumber'] = match.group(1) if match.groups() else match.group(0)
+            break
+    if 'invoiceNumber' not in data:
+        data['invoiceNumber'] = f'INV-{datetime.now().strftime("%Y%m%d%H%M%S")}'
+
+    return data
+
+
+@app.post("/api/invoices/extract-text")
+async def extract_text_only(
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user)
+):
+    """Extract raw text from uploaded file (PDF, DOCX, XLSX)"""
+    try:
+        contents = await file.read()
+        file_type = file.content_type
+        text = ""
+        
+        print(f"Processing file: {file.filename}, Type: {file_type}, Size: {len(contents)} bytes")
+        
+        if file_type == 'application/pdf':
+            text = extract_text_from_pdf(contents)
+        elif file_type in [
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/msword'
+        ]:
+            text = extract_text_from_docx(contents)
+        elif file_type in [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel'
+        ]:
+            text = extract_text_from_xlsx(contents)
+        else:
+            # Try to decode as plain text
+            text = contents.decode('utf-8', errors='ignore')
+        
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
+        
+        print(f"Extracted {len(text)} characters from {file.filename}")
+        
+        return {"text": text, "filename": file.filename, "file_type": file_type}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Extraction error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
+
+
+@app.post("/api/invoices/process")
+async def process_invoice(
+    file: UploadFile = File(...),
+    extracted_text: str = Form(...),
+    current_user = Depends(get_current_user)
+):
+    """Process extracted text and return structured invoice data"""
+    try:
+        extracted_data = extract_invoice_data(extracted_text)
+        
+        extracted_data['file_name'] = file.filename
+        extracted_data['file_type'] = file.content_type
+        extracted_data['extraction_method'] = 'regex'
+        extracted_data['text_length'] = len(extracted_text)
+        
+        print(f"Successfully extracted: Vendor={extracted_data['vendor']}, Total={extracted_data['total']}")
+        
+        return extracted_data
+        
+    except Exception as e:
+        print(f"Processing error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to process invoice data: {str(e)}")
 # ============================================
 # HEALTH & MODEL STATUS
 # ============================================
