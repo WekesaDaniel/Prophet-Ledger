@@ -344,7 +344,7 @@ Return as JSON:
     if (rec.action === 'Review anomalies') {
       window.location.href = '/anomalies';
     } else if (rec.action === 'Set limit' || rec.action === 'Set limits') {
-      window.location.href = '/settings?tab=limits';
+      window.location.href = '/anomalies?tab=limits';
     } else if (rec.action === 'Add transaction') {
       window.location.href = '/transactions';
     } else if (rec.action === 'View dashboard') {
