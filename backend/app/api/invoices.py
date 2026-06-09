@@ -415,3 +415,40 @@ def delete_invoice(
     db.delete(invoice)
     db.commit()
     return {"message": "Invoice deleted successfully"}
+
+
+# backend/app/api/invoices.py - Add this endpoint
+
+@router.post("/extract-text")
+async def extract_text_only(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Extract raw text from uploaded file (PDF, DOCX, XLSX)"""
+    try:
+        contents = await file.read()
+        file_type = file.content_type
+        text = ""
+        
+        if file_type == 'application/pdf':
+            text = extract_text_from_pdf(contents)
+        elif file_type in [
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/msword'
+        ]:
+            text = extract_text_from_docx(contents)
+        elif file_type in [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel'
+        ]:
+            text = extract_text_from_xlsx(contents)
+        else:
+            raise HTTPException(status_code=400, detail=f"File type not supported: {file_type}")
+        
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
+        
+        return {"text": text, "filename": file.filename, "file_type": file_type}
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")

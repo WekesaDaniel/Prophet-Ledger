@@ -6,13 +6,10 @@ import { supabase } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-// Dynamic import for tesseract.js (loads only when needed)
-const loadTesseract = () => import('tesseract.js');
-
 const SUPPORTED_FILE_TYPES = {
   'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false, extensions: ['.pdf'] },
-  'image/jpeg': { icon: Image, label: 'JPEG', needsOcr: true, extensions: ['.jpg', '.jpeg'] },
-  'image/png': { icon: Image, label: 'PNG', needsOcr: true, extensions: ['.png'] },
+  'image/jpeg': { icon: Image, label: 'JPEG', needsOcr: false, extensions: ['.jpg', '.jpeg'] },
+  'image/png': { icon: Image, label: 'PNG', needsOcr: false, extensions: ['.png'] },
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { icon: File, label: 'Word', needsOcr: false, extensions: ['.docx'] },
   'application/msword': { icon: File, label: 'Word', needsOcr: false, extensions: ['.doc'] },
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { icon: File, label: 'Excel', needsOcr: false, extensions: ['.xlsx'] },
@@ -34,43 +31,18 @@ const PDFUploader = ({ onUploadComplete }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
-  const [ocrProgress, setOcrProgress] = useState(0);
 
-  // Extract text from image using tesseract.js (lazy loaded)
-  const extractTextFromImage = async (file) => {
-    const { createWorker } = await loadTesseract();
-    
-    return new Promise((resolve, reject) => {
-      const worker = createWorker({
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            setOcrProgress(Math.floor(m.progress * 100));
-          }
-        }
-      });
-      
-      (async () => {
-        try {
-          await worker.load();
-          await worker.loadLanguage('eng');
-          await worker.initialize('eng');
-          const { data: { text } } = await worker.recognize(file);
-          await worker.terminate();
-          resolve(text);
-        } catch (error) {
-          await worker.terminate();
-          reject(error);
-        }
-      })();
-    });
+  // Get API URL
+  const getApiUrl = () => {
+    return process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api';
   };
 
-  // Extract text from PDF using backend
-  const extractTextFromPdf = async (file) => {
+  // Extract text from file using backend (handles PDF, DOCX, XLSX, Images)
+  const extractTextFromFile = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/extract-text`, {
+    const response = await fetch(`${getApiUrl()}/invoices/extract-text`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -80,28 +52,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.detail || 'PDF extraction failed');
-    }
-    const data = await response.json();
-    return data.text;
-  };
-
-  // Extract text from Word/Excel using backend
-  const extractTextFromDocument = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/extract-text`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: formData
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Document extraction failed');
+      throw new Error(error.detail || 'Extraction failed');
     }
     const data = await response.json();
     return data.text;
@@ -112,7 +63,7 @@ const PDFUploader = ({ onUploadComplete }) => {
     formData.append('file', file);
     formData.append('extracted_text', extractedText);
     
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://prophetledger-api.vercel.app/api'}/invoices/process`, {
+    const response = await fetch(`${getApiUrl()}/invoices/process`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -168,27 +119,18 @@ const PDFUploader = ({ onUploadComplete }) => {
     });
     setUploading(true);
     setUploadStatus('uploading');
-    setOcrProgress(0);
 
     try {
-      let extractedText = '';
-      const isImage = fileSupport.needsOcr;
-      const isPdf = fileType === 'application/pdf';
+      // Extract text from file using backend (handles all formats)
+      toast.loading('Processing file...', { id: 'process' });
+      const extractedText = await extractTextFromFile(file);
+      toast.dismiss('process');
       
-      if (isImage) {
-        toast.loading('Running OCR on image...', { id: 'ocr' });
-        extractedText = await extractTextFromImage(file);
-        toast.dismiss('ocr');
-      } else if (isPdf) {
-        toast.loading('Extracting text from PDF...', { id: 'pdf' });
-        extractedText = await extractTextFromPdf(file);
-        toast.dismiss('pdf');
-      } else {
-        toast.loading('Processing document...', { id: 'doc' });
-        extractedText = await extractTextFromDocument(file);
-        toast.dismiss('doc');
+      if (!extractedText || extractedText.trim().length < 10) {
+        throw new Error('Could not extract sufficient text from file');
       }
       
+      // Upload file to Supabase Storage
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
@@ -202,6 +144,7 @@ const PDFUploader = ({ onUploadComplete }) => {
         .from('invoices')
         .getPublicUrl(fileName);
 
+      // Process extracted text to get structured invoice data
       const extractedData = await processFileWithBackend(file, extractedText);
       
       const invoiceData = {
@@ -260,25 +203,17 @@ const PDFUploader = ({ onUploadComplete }) => {
         
         {uploadStatus === 'uploading' ? (
           <div>
-            {ocrProgress > 0 && ocrProgress < 100 ? (
-              <>
-                <Loader className="w-12 h-12 mx-auto text-blue-500 animate-spin mb-3" />
-                <p className="text-gray-600">Running OCR... {ocrProgress}%</p>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${ocrProgress}%` }} />
-                </div>
-              </>
-            ) : (
-              <>
-                <Loader className="w-12 h-12 mx-auto text-blue-500 animate-spin mb-3" />
-                <p className="text-gray-600">Processing {fileInfo?.name}...</p>
-              </>
-            )}
+            <Loader className="w-12 h-12 mx-auto text-blue-500 animate-spin mb-3" />
+            <p className="text-gray-600">Processing {fileInfo?.name}...</p>
+            <p className="text-sm text-gray-400 mt-1">Extracting data</p>
           </div>
         ) : uploadStatus === 'success' ? (
           <div>
             <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-3" />
             <p className="text-green-600">Invoice processed successfully!</p>
+            {fileInfo && (
+              <p className="text-sm text-green-500 mt-1">{fileInfo.name}</p>
+            )}
           </div>
         ) : uploadStatus === 'error' ? (
           <div>
@@ -288,7 +223,9 @@ const PDFUploader = ({ onUploadComplete }) => {
         ) : (
           <>
             <Upload className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-            <p className="text-gray-600">{isDragActive ? 'Drop file here' : 'Drag & drop invoice/receipt here'}</p>
+            <p className="text-gray-600">
+              {isDragActive ? 'Drop file here' : 'Drag & drop invoice/receipt here'}
+            </p>
             <p className="text-sm text-gray-400 mt-2">or click to browse</p>
             <div className="mt-3 flex flex-wrap justify-center gap-2 text-xs text-gray-500">
               <span className="px-2 py-1 bg-gray-100 rounded">PDF</span>
