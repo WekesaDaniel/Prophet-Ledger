@@ -1,4 +1,5 @@
-﻿from fastapi import FastAPI, HTTPException, Depends, Request
+﻿# backend/app/main.py
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -8,14 +9,16 @@ from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
 
-# Initialize clients with environment variables (Vercel will inject these)
+# Import routers
+from app.api import invoices
+
+# Initialize clients with environment variables
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Log which services are available (for debugging)
-print(f"Supabase configured: {SUPABASE_URL is not None}")
-print(f"Groq configured: {GROQ_API_KEY is not None}")
+print(f"🔐 Supabase configured: {SUPABASE_URL is not None}")
+print(f"🤖 Groq configured: {GROQ_API_KEY is not None}")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) if SUPABASE_URL and SUPABASE_ANON_KEY else None
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -35,6 +38,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(invoices.router)
 
 # ============================================
 # HEALTH CHECK
@@ -73,7 +79,7 @@ class RegisterRequest(BaseModel):
 @app.post("/api/auth/register")
 async def register(request: RegisterRequest):
     if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to environment variables.")
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     
     try:
         response = supabase.auth.sign_up({
@@ -234,16 +240,3 @@ async def get_kpis(mode: str = "personal"):
 @app.get("/api/dss/risk/score")
 async def get_risk_score():
     return {"risk_score": 68, "risk_level": "medium", "active_anomalies": 2, "recommendation": "Review pending anomalies"}
-
-# ============================================
-# INVOICE ENDPOINTS
-# ============================================
-@app.post("/api/invoices/scan")
-async def scan_invoice():
-    return {"message": "Invoice scanned", "vendor": "Sample Vendor", "total": 125.50, "date": "2024-05-15"}
-
-@app.get("/api/invoices")
-async def get_invoices():
-    return [
-        {"id": 1, "vendor": "Amazon", "amount": 1249.99, "date": "2024-05-15", "status": "paid"},
-    ]

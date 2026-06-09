@@ -15,13 +15,21 @@ from app.models.transaction import Transaction, TransactionType, TransactionCate
 
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 
-# Try to import optional dependencies with fallbacks
+# Try to import optional dependencies
 try:
     import PyPDF2
     PDF_SUPPORT = True
 except ImportError:
     PDF_SUPPORT = False
     print("⚠️ PyPDF2 not installed. PDF support disabled.")
+
+try:
+    from PIL import Image
+    import pytesseract
+    OCR_SUPPORT = True
+except ImportError:
+    OCR_SUPPORT = False
+    print("⚠️ Pillow or pytesseract not installed. Image OCR support disabled.")
 
 try:
     from docx import Document
@@ -79,6 +87,34 @@ def extract_text_from_pdf(file_content: bytes) -> str:
     except Exception as e:
         print(f"PDF extraction error: {e}")
         return ""
+
+
+def extract_text_from_image(file_content: bytes) -> str:
+    """Extract text from image using Tesseract OCR"""
+    if not OCR_SUPPORT:
+        return "Image OCR support not available"
+    import tempfile
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp.write(file_content)
+            temp_path = tmp.name
+        
+        image = Image.open(temp_path)
+        image = image.convert('L')  # Convert to grayscale
+        text = pytesseract.image_to_string(image)
+        
+        os.unlink(temp_path)
+        return text
+    except Exception as e:
+        print(f"OCR error: {e}")
+        return ""
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
 
 
 def extract_text_from_docx(file_content: bytes) -> str:
@@ -216,67 +252,23 @@ def extract_invoice_data(text: str) -> dict:
     return data
 
 
-def create_transaction_from_invoice(user_id: int, invoice_data: dict, db: Session):
-    """Create a transaction record from extracted invoice data"""
-    try:
-        # Determine if it's income or expense based on context
-        transaction_type = TransactionType.EXPENSE  # Default to expense for invoices
-        
-        # Map category to TransactionCategory enum
-        category_map = {
-            'groceries': TransactionCategory.GROCERIES,
-            'dining': TransactionCategory.DINING,
-            'transport': TransactionCategory.TRANSPORT,
-            'utilities': TransactionCategory.UTILITIES,
-            'entertainment': TransactionCategory.ENTERTAINMENT,
-            'shopping': TransactionCategory.SHOPPING,
-            'health': TransactionCategory.HEALTH,
-            'rent': TransactionCategory.RENT,
-            'income': TransactionCategory.INCOME,
-        }
-        
-        vendor_lower = invoice_data.get('vendor', '').lower()
-        category = TransactionCategory.OTHER
-        
-        for key, cat in category_map.items():
-            if key in vendor_lower:
-                category = cat
-                break
-        
-        # Create transaction
-        transaction = Transaction(
-            user_id=user_id,
-            amount=abs(invoice_data.get('total', 0)),
-            description=f"Invoice from {invoice_data.get('vendor', 'Unknown')} - {invoice_data.get('invoiceNumber', '')}",
-            category=category,
-            type=transaction_type,
-            date=datetime.strptime(invoice_data.get('date', datetime.now().strftime('%Y-%m-%d')), '%Y-%m-%d'),
-            vendor=invoice_data.get('vendor', 'Unknown')
-        )
-        
-        db.add(transaction)
-        db.commit()
-        db.refresh(transaction)
-        
-        return transaction
-    except Exception as e:
-        print(f"Error creating transaction: {e}")
-        return None
-
-
 @router.post("/extract-text")
 async def extract_text_only(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    """Extract raw text from uploaded file"""
+    """Extract raw text from uploaded file (PDF, Image, DOCX, XLSX)"""
     try:
         contents = await file.read()
         file_type = file.content_type
         text = ""
         
+        print(f"Processing file: {file.filename}, Type: {file_type}, Size: {len(contents)} bytes")
+        
         if file_type == 'application/pdf':
             text = extract_text_from_pdf(contents)
+        elif file_type.startswith('image/'):
+            text = extract_text_from_image(contents)
         elif file_type in [
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/msword'
@@ -290,9 +282,17 @@ async def extract_text_only(
         else:
             raise HTTPException(status_code=400, detail=f"File type not supported: {file_type}")
         
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
+        
+        print(f"Extracted {len(text)} characters from {file.filename}")
+        
         return {"text": text, "filename": file.filename, "file_type": file_type}
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Extraction error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
 
 
@@ -305,10 +305,8 @@ async def process_invoice(
 ):
     """Process extracted text and return structured invoice data"""
     try:
-        # Extract invoice data using regex
         extracted_data = extract_invoice_data(extracted_text)
         
-        # Add metadata
         extracted_data['file_name'] = file.filename
         extracted_data['file_type'] = file.content_type
         extracted_data['extraction_method'] = 'regex'
@@ -324,7 +322,7 @@ async def process_invoice(
 
 
 @router.post("/create-transaction")
-async def create_transaction_from_invoice_endpoint(
+async def create_transaction_from_invoice(
     invoice_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -338,15 +336,49 @@ async def create_transaction_from_invoice_endpoint(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    transaction = create_transaction_from_invoice(current_user.id, invoice.extracted_data, db)
+    # Determine if it's income or expense based on context
+    transaction_type = TransactionType.EXPENSE
     
-    if transaction:
-        # Update invoice status
-        invoice.status = "processed"
-        db.commit()
-        return {"message": "Transaction created successfully", "transaction_id": transaction.id}
-    else:
-        raise HTTPException(status_code=400, detail="Failed to create transaction")
+    # Map category to TransactionCategory enum
+    category_map = {
+        'groceries': TransactionCategory.GROCERIES,
+        'dining': TransactionCategory.DINING,
+        'transport': TransactionCategory.TRANSPORT,
+        'utilities': TransactionCategory.UTILITIES,
+        'entertainment': TransactionCategory.ENTERTAINMENT,
+        'shopping': TransactionCategory.SHOPPING,
+        'health': TransactionCategory.HEALTH,
+        'rent': TransactionCategory.RENT,
+        'income': TransactionCategory.INCOME,
+    }
+    
+    vendor_lower = invoice.vendor.lower() if invoice.vendor else ''
+    category = TransactionCategory.OTHER
+    
+    for key, cat in category_map.items():
+        if key in vendor_lower:
+            category = cat
+            break
+    
+    transaction = Transaction(
+        user_id=current_user.id,
+        amount=abs(invoice.total_amount or 0),
+        description=f"Invoice from {invoice.vendor or 'Unknown'} - {invoice.invoice_number or ''}",
+        category=category,
+        type=transaction_type,
+        date=invoice.date or datetime.now(),
+        vendor=invoice.vendor or 'Unknown'
+    )
+    
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    
+    # Update invoice status
+    invoice.status = "processed"
+    db.commit()
+    
+    return {"message": "Transaction created successfully", "transaction_id": transaction.id}
 
 
 @router.get("/", response_model=List[InvoiceResponse])
@@ -415,40 +447,3 @@ def delete_invoice(
     db.delete(invoice)
     db.commit()
     return {"message": "Invoice deleted successfully"}
-
-
-# backend/app/api/invoices.py - Add this endpoint
-
-@router.post("/extract-text")
-async def extract_text_only(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
-):
-    """Extract raw text from uploaded file (PDF, DOCX, XLSX)"""
-    try:
-        contents = await file.read()
-        file_type = file.content_type
-        text = ""
-        
-        if file_type == 'application/pdf':
-            text = extract_text_from_pdf(contents)
-        elif file_type in [
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/msword'
-        ]:
-            text = extract_text_from_docx(contents)
-        elif file_type in [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-excel'
-        ]:
-            text = extract_text_from_xlsx(contents)
-        else:
-            raise HTTPException(status_code=400, detail=f"File type not supported: {file_type}")
-        
-        if not text or len(text.strip()) < 10:
-            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file")
-        
-        return {"text": text, "filename": file.filename, "file_type": file_type}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
