@@ -19,112 +19,117 @@
 
 ---
 
-##  Table of Contents
+## 📖 Table of Contents
 
 - [Project Status](#-project-status)
 - [Team & Responsibilities](#-team--responsibilities)
 - [File Structure](#-file-structure)
+- [Recent Updates](#-recent-updates)
 - [Hardcoded Values Guide](#-hardcoded-values-guide)
 - [Development Setup](#-development-setup)
 - [Quick Start](#-quick-start)
 - [API Integration Guide](#-api-integration-guide)
 - [Git Workflow](#-git-workflow)
+- [Deployment](#-deployment)
 
 ---
 
-##  Project Status
+## 🚦 Project Status
 
 | Component | Status | Owner | Hardcoded Location |
 |-----------|--------|-------|---------------------|
-| KPI Grid |  Mock Data Ready | Daniel | `MOCK_KPIS` in KpiGrid.jsx |
-| Trend Chart |  Mock Data Ready |  Josiah | `MOCK_TREND_DATA` in TrendChart.jsx |
-| Anomaly Table |  Mock Data Ready |  Arnold | `MOCK_ANOMALIES` in AnomalyTable.jsx |
-| Chatbot |  Mock Responses Ready |  Geoffrey | `MOCK_RESPONSES` in Chatbot.jsx |
-| PDF Scanner |  Mock Extraction Ready |  Daniel | `extractedData` in PDFUploader.jsx |
-| Transaction Form |  Mock Submit Ready |  Daniel | `console.log` in TransactionForm.jsx |
-| Scenario Simulator |  Mock Results Ready |  Daniel | `results` in ScenarioSimulator.jsx |
-| Sidebar Navigation |  Complete |  Daniel | NavLinks configured |
-| Layout Component |  Complete |  Daniel | Persistent sidebar layout |
-| Invoice List |  Mock Data Ready |  Daniel | `MOCK_INVOICES` in InvoiceList.jsx |
+| KPI Grid | ✅ API Integrated | 🧠 Daniel | Real-time from DB |
+| Trend Chart | ✅ Mock Data Ready | 👤 Josiah | `MOCK_TREND_DATA` |
+| Anomaly Table | ✅ API Integrated | 🔒 Arnold | Real-time from DB |
+| Chatbot | ✅ AI-Powered | 💬 Geoffrey | Groq + User Data |
+| PDF Scanner | ✅ Working | 🧠 Daniel | OCR + Extraction |
+| Transaction Form | ✅ API Integrated | 🧠 Daniel | Supabase CRUD |
+| Scenario Simulator | ✅ Mock Ready | 🧠 Daniel | `results` |
+| Recommendation Panel | ✅ AI-Powered | 🧠 Daniel | Groq + User Data |
+| Alert Center | ✅ Real-time | 🔒 Arnold | Supabase Alerts |
+| Risk Heatmap | ✅ API Integrated | 🧠 Daniel | Real-time from DB |
+| Invoice List | ✅ API Integrated | 🧠 Daniel | Supabase Storage |
 
 ---
 
-##  Team & Responsibilities
+## 👥 Team & Responsibilities
 
-###  Daniel (Lead Architect / DSS / UI)
+### 🧠 Daniel (Lead Architect / DSS / UI)
 
-| Component | File Path | Hardcoded Section | Future API Endpoint |
-|-----------|-----------|-------------------|---------------------|
-| KPI Grid | `src/components/dashboard/KpiGrid.jsx` | `MOCK_KPIS` | `GET /api/dss/kpis?mode={mode}` |
-| Risk Heatmap | `src/components/dashboard/RiskHeatmap.jsx` | `mockRiskData` | `GET /api/dss/risk/heatmap` |
-| Scenario Simulator | `src/components/dss/ScenarioSimulator.jsx` | `results` | `POST /api/dss/what-if/evaluate` |
-| Score Meter | `src/components/dss/ScoreMeter.jsx` | `score` | `GET /api/dss/risk/score` |
-| PDF Uploader | `src/components/invoices/PDFUploader.jsx` | `extractedData` | `POST /api/invoices/scan` |
-| Invoice List | `src/components/invoices/InvoiceList.jsx` | `mockInvoices` | `GET /api/invoices` |
-| Transaction Form | `src/components/transactions/TransactionForm.jsx` | `console.log` | `POST /api/transactions` |
-| Transaction List | `src/components/transactions/TransactionList.jsx` | `mockTransactions` | `GET /api/transactions` |
-| Layout | `src/components/layout/Layout.jsx` | N/A | Persistent sidebar wrapper |
-| Sidebar | `src/components/layout/Sidebar.jsx` | `navItems` | Navigation routes |
+| Component | File Path | Status | API Endpoint |
+|-----------|-----------|--------|--------------|
+| KPI Grid | `src/components/dashboard/KpiGrid.jsx` | ✅ Live | `GET /api/dss/kpis` |
+| Risk Heatmap | `src/components/dashboard/RiskHeatmap.jsx` | ✅ Live | `GET /api/dss/risk/heatmap` |
+| Recommendation Panel | `src/components/dashboard/RecommendationPanel.jsx` | ✅ AI | `POST /api/chatbot/query` |
+| Scenario Simulator | `src/components/dss/ScenarioSimulator.jsx` | ⚠️ Mock | `POST /api/dss/what-if` |
+| Score Meter | `src/components/dss/ScoreMeter.jsx` | ⚠️ Mock | `GET /api/dss/risk/score` |
+| PDF Uploader | `src/components/invoices/PDFUploader.jsx` | ✅ Live | Supabase Storage |
+| Invoice List | `src/components/invoices/InvoiceList.jsx` | ✅ Live | `GET /api/invoices` |
+| Transaction Form | `src/components/transactions/TransactionForm.jsx` | ✅ Live | Supabase CRUD |
+| Transaction List | `src/components/transactions/TransactionList.jsx` | ✅ Live | `GET /api/transactions` |
+| Layout | `src/components/layout/Layout.jsx` | ✅ Complete | Persistent sidebar |
+| Sidebar | `src/components/layout/Sidebar.jsx` | ✅ Complete | Navigation |
+| Alert Center | `src/components/dashboard/AlertCenter.jsx` | ✅ Live | Supabase Alerts |
 
-###  Josiah (AI/ML - Forecasting)
+### 👤 Josiah (AI/ML - Forecasting)
 
-| Component | File Path | Hardcoded Section | Future API Endpoint |
-|-----------|-----------|-------------------|---------------------|
-| Trend Chart | `src/components/dashboard/TrendChart.jsx` | `mockData` | `GET /api/forecasts/trend/{metric}` |
-| Forecast Service | `src/services/forecastService.js` | Mock responses | `GET /api/forecasts/predict` |
+| Component | File Path | Status | API Endpoint |
+|-----------|-----------|--------|--------------|
+| Trend Chart | `src/components/dashboard/TrendChart.jsx` | ⚠️ Mock | `GET /api/forecasts/trend` |
+| Forecast Service | `src/services/forecastService.js` | ⚠️ Mock | `GET /api/forecasts/predict` |
 
-###  Geoffrey (NLP & Chatbot)
+### 💬 Geoffrey (NLP & Chatbot)
 
-| Component | File Path | Hardcoded Section | Future API Endpoint |
-|-----------|-----------|-------------------|---------------------|
-| Chatbot | `src/components/chat/Chatbot.jsx` | `mockResponses` | `POST /api/chatbot/query` |
-| Scoring Engine | `backend/app/services/dss/scoring_engine.py` | Keyword dictionary | N/A - ML model |
+| Component | File Path | Status | API Endpoint |
+|-----------|-----------|--------|--------------|
+| Chatbot | `src/components/chat/Chatbot.jsx` | ✅ AI | `POST /api/chatbot/query` |
+| Chat Service | `src/services/chatService.js` | ✅ AI | Groq + User Data |
+| Scoring Engine | `backend/app/services/dss/scoring_engine.py` | ⚠️ Mock | N/A - ML model |
 
-###  Arnold (Security & Anomaly)
+### 🔒 Arnold (Security & Anomaly)
 
-| Component | File Path | Hardcoded Section | Future API Endpoint |
-|-----------|-----------|-------------------|---------------------|
-| Anomaly Table | `src/components/dashboard/AnomalyTable.jsx` | `mockAnomalies` | `GET /api/anomalies` |
-| Alert Center | `src/components/dashboard/AlertCenter.jsx` | `alerts` | `GET /api/alerts` |
-| Auth Middleware | `backend/app/middleware/auth.py` | N/A | JWT validation |
+| Component | File Path | Status | API Endpoint |
+|-----------|-----------|--------|--------------|
+| Anomaly Table | `src/components/dashboard/AnomalyTable.jsx` | ✅ Live | `GET /api/anomalies` |
+| Alert Center | `src/components/dashboard/AlertCenter.jsx` | ✅ Live | `GET /api/alerts` |
+| Auth Middleware | `backend/app/middleware/auth.py` | ✅ Complete | JWT validation |
+| Audit Logs | `backend/app/middleware/audit.py` | ✅ Complete | Request logging |
 
 ---
 
-
-## 📁 File Structure
-
+## 📁 Complete File Structure
 prophetledger/
 │
 ├── backend/
-│ │
 │ ├── app/
 │ │ ├── main.py # FastAPI entry point
 │ │ ├── config.py # Configuration
 │ │ ├── database.py # DB connection
 │ │ │
 │ │ ├── api/
-│ │ │ ├── auth.py #  Arnold
-│ │ │ ├── users.py #  Arnold
-│ │ │ ├── transactions.py #  Daniel
-│ │ │ ├── invoices.py #  Daniel
-│ │ │ ├── forecasts.py #  Josiah
-│ │ │ ├── anomalies.py #  Arnold
-│ │ │ ├── chatbot.py #  Geoffrey
-│ │ │ └── dss.py #  Daniel
+│ │ │ ├── auth.py # 🔒 Arnold (JWT, login, register)
+│ │ │ ├── users.py # 🔒 Arnold (user management)
+│ │ │ ├── transactions.py # 🧠 Daniel (CRUD)
+│ │ │ ├── invoices.py # 🧠 Daniel (PDF processing)
+│ │ │ ├── forecasts.py # 👤 Josiah (predictions)
+│ │ │ ├── anomalies.py # 🔒 Arnold (fraud detection)
+│ │ │ ├── chatbot.py # 💬 Geoffrey (Groq API)
+│ │ │ └── dss.py # 🧠 Daniel (decision support)
 │ │ │
 │ │ ├── services/
-│ │ │ ├── scanner.py #  Daniel
-│ │ │ ├── forecast.py #  Josiah
-│ │ │ ├── anomaly.py #  Arnold
-│ │ │ ├── chatbot.py #  Geoffrey
+│ │ │ ├── scanner.py # 🧠 Daniel (PDF extraction)
+│ │ │ ├── forecast.py # 👤 Josiah (ARIMA/LSTM)
+│ │ │ ├── anomaly.py # 🔒 Arnold (Isolation Forest)
+│ │ │ ├── chatbot.py # 💬 Geoffrey (NLP + classification)
+│ │ │ ├── hf_model_loader.py # 🧠 Daniel (Hugging Face)
 │ │ │ │
-│ │ │ └── dss/ #  Daniel
+│ │ │ └── dss/ # 🧠 Daniel
 │ │ │ ├── risk_engine.py
 │ │ │ ├── kpi_engine.py
 │ │ │ ├── alert_engine.py
 │ │ │ └── what_if_evaluator.py
 │ │ │
-│ │ └── middleware/ #  Arnold
+│ │ └── middleware/ # 🔒 Arnold
 │ │ ├── auth.py
 │ │ └── audit.py
 │ │
@@ -133,15 +138,14 @@ prophetledger/
 │ └── .env
 │
 └── frontend/
-│
 └── src/
-├── App.js
+├── App.js # Routing with Layout
 ├── index.js
 ├── index.css
 │
 ├── contexts/
-│ ├── AuthContext.jsx
-│ └── ModeContext.jsx
+│ ├── AuthContext.jsx # Supabase auth
+│ └── ModeContext.jsx # Mode & currency
 │
 ├── pages/
 │ ├── Login.jsx
@@ -159,31 +163,32 @@ prophetledger/
 │
 ├── components/
 │ ├── layout/
-│ │ ├── Layout.jsx ✅
+│ │ ├── Layout.jsx ✅ Persistent sidebar
 │ │ ├── Header.jsx
-│ │ └── Sidebar.jsx ✅
+│ │ └── Sidebar.jsx ✅ Navigation
 │ │
 │ ├── dashboard/
-│ │ ├── KpiGrid.jsx ⚠️ 
-│ │ ├── RiskHeatmap.jsx ⚠️ 
-│ │ ├── TrendChart.jsx ⚠️ 
-│ │ ├── AnomalyTable.jsx ⚠️ 
-│ │ └── AlertCenter.jsx ⚠️ 
+│ │ ├── KpiGrid.jsx ✅ Live data
+│ │ ├── RiskHeatmap.jsx ✅ Live data
+│ │ ├── TrendChart.jsx ⚠️ Mock
+│ │ ├── AnomalyTable.jsx ✅ Live + limits
+│ │ ├── AlertCenter.jsx ✅ Live + auto-create
+│ │ └── RecommendationPanel.jsx ✅ AI-powered
 │ │
 │ ├── dss/
-│ │ ├── ScenarioSimulator.jsx ⚠️ 
-│ │ └── ScoreMeter.jsx ⚠️ 
+│ │ ├── ScenarioSimulator.jsx ⚠️ Mock
+│ │ └── ScoreMeter.jsx ⚠️ Mock
 │ │
 │ ├── invoices/
-│ │ ├── PDFUploader.jsx ⚠️ 
-│ │ └── InvoiceList.jsx ⚠️ 
+│ │ ├── PDFUploader.jsx ✅ OCR + Supabase
+│ │ └── InvoiceList.jsx ✅ Live data
 │ │
 │ ├── transactions/
-│ │ ├── TransactionForm.jsx ⚠️ 
-│ │ └── TransactionList.jsx ⚠️ 
+│ │ ├── TransactionForm.jsx ✅ Supabase CRUD
+│ │ └── TransactionList.jsx ✅ Live data
 │ │
 │ ├── chat/
-│ │ └── Chatbot.jsx ⚠️ 
+│ │ └── Chatbot.jsx ✅ AI-powered + page-aware
 │ │
 │ └── shared/
 │ ├── PrivateRoute.jsx
@@ -192,10 +197,13 @@ prophetledger/
 │
 ├── services/
 │ ├── api.js
+│ ├── authService.js
+│ ├── chatService.js ✅ Groq + user context
 │ ├── dssService.js
 │ ├── forecastService.js
 │ ├── anomalyService.js
-│ └── chatService.js
+│ ├── uploadService.js ✅ File uploads
+│ └── supabaseClient.js
 │
 ├── hooks/
 │ ├── useAuth.js
@@ -204,13 +212,28 @@ prophetledger/
 └── utils/
 ├── formatters.js
 └── charts.js
+
+Legend:
+✅ = Production-ready / API integrated
+⚠️ = Contains mock data needing integration
+🔧 = In progress
+
 text
 
+---
 
+## 🆕 Recent Updates
 
-
-
-> **Legend:** ⚠️  = Contains mock data needing API integration | ✅ NEW = Recently added/updated
+| Date | Component | Change | Owner |
+|------|-----------|--------|-------|
+| June 2024 | Alert Center | Auto-create alerts from anomalies & limits | 🔒 Arnold |
+| June 2024 | Anomaly Table | Limit-based anomaly detection | 🔒 Arnold |
+| June 2024 | Chatbot | Page-aware responses + user data access | 💬 Geoffrey |
+| June 2024 | Recommendation Panel | AI-powered via Groq | 🧠 Daniel |
+| June 2024 | PDF Uploader | OCR + multi-format support | 🧠 Daniel |
+| June 2024 | KPI Grid | Real-time database integration | 🧠 Daniel |
+| June 2024 | Risk Heatmap | Live transaction analysis | 🧠 Daniel |
+| June 2024 | Hugging Face Integration | Model hosting | 🧠 Daniel |
 
 ---
 
@@ -221,52 +244,67 @@ text
 Look for these patterns in the code:
 
 ```javascript
-// 🔴  - Replace with API call
+// 🔴 HARDCODED - Replace with API call
 const MOCK_DATA = [...] 
 
-// 🔴  - Replace with actual extracted data
+// 🔴 HARDCODED - Replace with actual extracted data
 const extractedData = { ... }
 
-//  TODO: Uncomment when API is ready
+// ✅ TO DO: Uncomment when API is ready
 // const response = await api.get('/endpoint')
-```
+API Integration Checklist
+For 🧠 Daniel:
 
-### API Integration Checklist
+KpiGrid.jsx - Integrated with Supabase
 
-**For  Daniel:**
-- [ ] `KpiGrid.jsx` - Replace `MOCK_KPIS` with `api.get('/dss/kpis')`
-- [ ] `RiskHeatmap.jsx` - Replace `mockRiskData` with `api.get('/dss/risk/heatmap')`
-- [ ] `PDFUploader.jsx` - Replace mock extraction with `api.post('/invoices/scan')`
-- [ ] `InvoiceList.jsx` - Replace `mockInvoices` with `api.get('/invoices')`
-- [ ] `TransactionForm.jsx` - Replace mock submit with `api.post('/transactions')`
-- [ ] `TransactionList.jsx` - Replace `mockTransactions` with `api.get('/transactions')`
-- [ ] `ScenarioSimulator.jsx` - Replace mock results with `api.post('/dss/what-if/evaluate')`
+RiskHeatmap.jsx - Integrated with Supabase
 
-**For  Josiah:**
-- [ ] `TrendChart.jsx` - Replace `mockData` with `api.get('/forecasts/trend')`
-- [ ] `forecastService.js` - Connect to real forecasting models
+RecommendationPanel.jsx - AI-powered
 
-**For  Geoffrey:**
-- [ ] `Chatbot.jsx` - Replace `mockResponses` with `api.post('/chatbot/query')`
+PDFUploader.jsx - OCR + Supabase
 
-**For  Arnold:**
-- [ ] `AnomalyTable.jsx` - Replace `mockAnomalies` with `api.get('/anomalies')`
-- [ ] `AlertCenter.jsx` - Replace `alerts` with `api.get('/alerts')`
+InvoiceList.jsx - Supabase CRUD
 
----
+TransactionForm.jsx - Supabase CRUD
 
-##  Development Setup
+TransactionList.jsx - Supabase CRUD
 
-### Prerequisites
+ScenarioSimulator.jsx - Needs API
 
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL 15+ (or SQLite for development)
-- Git
+For 👤 Josiah:
 
-### Quick Start
+TrendChart.jsx - Needs forecast API
 
-```bash
+forecastService.js - Needs ML models
+
+For 💬 Geoffrey:
+
+Chatbot.jsx - Groq API integrated
+
+chatService.js - User context aware
+
+For 🔒 Arnold:
+
+AnomalyTable.jsx - Supabase + limits
+
+AlertCenter.jsx - Auto-create alerts
+
+auth.py - JWT validation
+
+🚀 Development Setup
+Prerequisites
+Python 3.11+
+
+Node.js 18+
+
+PostgreSQL 15+ (or SQLite for development)
+
+Git
+
+Tesseract OCR (for image invoice scanning)
+
+Quick Start
+bash
 # Clone and switch to dev branch
 git clone https://github.com/WekesaDanielJkuat/ProphetLedger.git
 cd ProphetLedger
@@ -285,106 +323,91 @@ uvicorn app.main:app --reload --port 8000
 # Frontend setup (new terminal)
 cd frontend
 npm install
+npm install tesseract.js  # For OCR
 npm start
-```
+Environment Variables
+Backend (.env in /backend)
 
-### Environment Variables
-
-**Backend** (`.env` in `/backend`)
-```env
-DATABASE_URL=sqlite:///./prophetledger.db
+env
+DATABASE_URL=postgresql://postgres:secret@localhost:5432/prophetledger
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
+GROQ_API_KEY=your_groq_api_key
+HF_TOKEN=your_huggingface_token
 SECRET_KEY=your-secret-key-here
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
-ENVIRONMENT=development
-```
+Frontend (.env in /frontend)
 
-**Frontend** (`.env` in `/frontend`)
-```env
-REACT_APP_API_URL=http://localhost:8000
-```
+env
+REACT_APP_API_URL=http://localhost:8000/api
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
+Verify Installation
+Service	URL	Expected
+Backend API	http://localhost:8000	{"message":"ProphetLedger API is running!"}
+API Docs	http://localhost:8000/docs	Swagger UI
+Frontend	http://localhost:3000	Login page
+Health Check	http://localhost:8000/health	{"status":"healthy"}
+🤖 Chatbot Page Awareness
+The chatbot now understands which page you're on and provides context-aware responses:
 
-### Verify Installation
+Page	Chatbot Knows	Example Response
+Dashboard	Key metrics, KPIs, anomalies	"Your financial health score is 78. You have 2 pending anomalies."
+Transactions	Recent transactions, spending patterns	"You've spent $3,247 this month. Dining is your top category."
+Invoices	Uploaded invoices, scan status	"You have 5 invoices. The latest is from Amazon for $1,249."
+Forecasts	Prediction data, trends	"Your cash flow is projected to increase by 8% next month."
+Anomalies	Detected anomalies, risk scores	"You have 2 pending anomalies. One is an Amazon purchase for $1,249."
+DSS	Risk scores, what-if scenarios	"Your risk score is 68 (medium). Review pending anomalies."
+Settings	User preferences, currency	"Your currency is set to USD. Dark mode is enabled."
+🔌 API Integration Guide
+Step-by-Step to Replace Hardcoded Data
+Find the hardcoded section (look for 🔴 comments)
 
-| Service | URL | Expected |
-|---------|-----|----------|
-| Backend API | http://localhost:8000 | `{"message":"ProphetLedger API is running!"}` |
-| API Docs | http://localhost:8000/docs | Swagger UI |
-| Frontend | http://localhost:3000 | Login page |
-| Health Check | http://localhost:8000/health | `{"status":"healthy"}` |
+Uncomment the API call (look for ✅ TODO comments)
 
----
+Comment out or delete the mock data
 
-##  API Integration Guide
+Test the integration
 
-### Step-by-Step to Replace Hardcoded Data
-
-1. Find the hardcoded section (look for `🔴` comments)
-2. Uncomment the API call (look for `✅ TODO` comments)
-3. Comment out or delete the mock data
-4. Test the integration
-
-### Example Transformation
-
-```javascript
+Example Transformation
+javascript
 // BEFORE (Hardcoded)
 const MOCK_DATA = [...]
 setData(MOCK_DATA);
 
 // AFTER (API-integrated)
-// const response = await api.get('/endpoint');
-// setData(response.data);
-```
-
-### Important API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | User registration |
-| POST | `/api/auth/login` | User login |
-| GET | `/api/auth/me` | Get current user |
-| GET | `/api/dss/kpis` | Get KPI data |
-| GET | `/api/forecasts/trend/{metric}` | Get forecast data |
-| GET | `/api/anomalies` | Get anomalies |
-| POST | `/api/chatbot/query` | Chatbot query |
-| POST | `/api/invoices/scan` | Scan PDF invoice |
-| GET | `/api/invoices` | Get invoices list |
-| POST | `/api/transactions` | Add transaction |
-| GET | `/api/transactions` | Get transactions |
-
----
-
-##  Git Workflow
-
-### Avoid README Merge Conflicts
-
-Add this to `.gitattributes`:
-```
-README.md merge=ours
-```
-
-Or use this command when merging:
-```bash
-# Merge dev into main but keep main's README
-git checkout main
-git merge -X ours dev -- README.md
-git merge dev  # Then merge everything else
-```
-
-### Branch Strategy
-
-```
+const response = await api.get('/endpoint');
+setData(response.data);
+Key API Endpoints
+Method	Endpoint	Description
+POST	/api/auth/register	User registration
+POST	/api/auth/login	User login
+GET	/api/auth/me	Get current user
+GET	/api/dss/kpis	Get KPI data
+GET	/api/dss/risk/heatmap	Risk heatmap
+GET	/api/forecasts/trend/{metric}	Forecast data
+GET	/api/anomalies	Anomalies list
+POST	/api/anomalies/detect	ML anomaly detection
+POST	/api/chatbot/query	Groq AI chat
+POST	/api/invoices/extract-text	PDF text extraction
+POST	/api/invoices/process	Invoice processing
+GET	/api/invoices	Invoice list
+POST	/api/transactions	Add transaction
+GET	/api/transactions	Transaction list
+GET	/api/alerts	User alerts
+POST	/api/alerts/{id}/read	Mark alert read
+🔀 Git Workflow
+Branch Strategy
+text
 main                    # Production (stable)
   └── dev               # Development integration
        ├── feature/dss-daniel      # Daniel's DSS features
        ├── feature/forecast-josiah # Josiah's forecasting
        ├── feature/chatbot-geoffrey # Geoffrey's chatbot
        └── feature/security-arnold # Arnold's security
-```
-
-### Daily Workflow
-
-```bash
+Daily Workflow
+bash
 # 1. Always start from updated dev
 git checkout dev
 git pull origin dev
@@ -392,66 +415,58 @@ git pull origin dev
 # 2. Create your feature branch
 git checkout -b feature/your-name-feature-name
 
-# 3. Make changes and commit frequently
+# 3. Make changes and commit
 git add .
-git commit -m "feat: add component with hardcoded data"
+git commit -m "feat: add component"
 
 # 4. Push your branch
 git push origin feature/your-name-feature-name
 
-# 5. Create Pull Request on GitHub to merge into dev
-```
+# 5. Create Pull Request
+Commit Convention
+Type	Description
+feat:	New feature
+fix:	Bug fix
+docs:	Documentation
+style:	Formatting
+refactor:	Code restructure
+test:	Add tests
+chore:	Maintenance
+🚢 Deployment
+Backend (Vercel)
+bash
+cd backend
+vercel --prod
+Frontend (Vercel)
+bash
+cd frontend
+vercel --prod
+Environment Variables in Vercel
+Variable	Purpose
+SUPABASE_URL	Database connection
+SUPABASE_ANON_KEY	Supabase auth
+GROQ_API_KEY	AI chatbot
+HF_TOKEN	Hugging Face models
+📝 Code Review Checklist
+All hardcoded sections marked with 🔴 comments
 
-### Commit Convention
+API integration sections marked with ✅ TODO
 
-| Type | Description |
-|------|-------------|
-| `feat:` | New feature (Daniel: DSS, Josiah: forecast, Geoffrey: chatbot, Arnold: security) |
-| `fix:` | Bug fix |
-| `docs:` | Documentation |
-| `style:` | Formatting |
-| `refactor:` | Code restructure |
-| `test:` | Add tests |
-| `chore:` | Maintenance |
+Component handles loading and error states
 
-### Pull Request Process
+Follows project structure
 
-1. Push your feature branch to GitHub
-2. Create PR from `feature/*` → `dev`
-3. Request review from Daniel (Lead Architect)
-4. Ensure all tests pass
-5. Get approval from at least one other team member
-6. Merge into `dev`
+No console errors or warnings
 
----
-
-## 📝 Code Review Checklist
-
-- [ ] All hardcoded sections are marked with `🔴` comments
-- [ ] API integration sections are marked with `✅ TODO` comments
-- [ ] Component handles loading and error states
-- [ ] Works with mock data (for demo purposes)
-- [ ] Follows project structure
-- [ ] No console errors or warnings
-
----
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
----
+📄 License
+MIT License - see LICENSE file for details.
 
 <div align="center">
-  <sub>Made with 🔮 by the ProphetLedger Team</sub>
-  <br>
-  <sub>Daniel (Lead/DSS) · Josiah (AI/ML) · Geoffrey (NLP) · Arnold (Security)</sub>
-  <br><br>
-  <a href="#">Report Bug</a> ·
-  <a href="#">Request Feature</a> ·
-  <a href="#">Dev Branch</a>
-</div>
-```
+Made by the ProphetLedger Team
 
+Daniel (Lead/DSS)	Josiah (AI/ML)	Arnold (Security)
+Report Bug ·
+Request Feature ·
+Dev Branch
 
-
+</div> ```
