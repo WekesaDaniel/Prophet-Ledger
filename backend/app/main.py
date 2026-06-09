@@ -10,6 +10,10 @@ from supabase import create_client, Client
 from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
+from app.database import get_db
+from sqlalchemy.orm import Session
+
+from app.services.risk_service import RiskScoreService
 
 # Try to import optional dependencies
 try:
@@ -485,6 +489,28 @@ async def get_kpis(mode: str = "personal"):
         {"id": 2, "title": "Cash Runway", "value": 12, "change": -2, "trend": "down", "benchmark": 12, "status": "warning", "recommendation": "Watch spending"},
     ]
 
+
 @app.get("/api/dss/risk/score")
-async def get_risk_score():
-    return {"risk_score": 68, "risk_level": "medium", "active_anomalies": 2, "recommendation": "Review pending anomalies"}
+async def get_risk_score(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Get dynamic risk score based on anomalies and transactions"""
+    
+    # Get current user
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    try:
+        user_data = supabase.auth.get_user(token)
+        user_id = user_data.user.id
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Calculate risk score using the service
+    risk_service = RiskScoreService(db)
+    risk_data = risk_service.calculate_user_risk_score(user_id)
+    
+    return risk_data
