@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
   // Handle email confirmation from URL
   useEffect(() => {
@@ -27,7 +28,7 @@ export const AuthProvider = ({ children }) => {
       const type = hashParams.get('type');
       
       if (type === 'signup' || type === 'recovery') {
-        if (access_token) {
+        if (accessToken) {
           const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken
@@ -35,8 +36,9 @@ export const AuthProvider = ({ children }) => {
           
           if (!error && data.session) {
             setSession(data.session);
+            localStorage.setItem('token', data.session.access_token);
+            setToken(data.session.access_token);
             
-            // Extract user data with full_name
             const userData = {
               id: data.session.user.id,
               email: data.session.user.email,
@@ -68,7 +70,11 @@ export const AuthProvider = ({ children }) => {
         const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
         
-        // Extract user data including full_name from metadata
+        if (session?.access_token) {
+          localStorage.setItem('token', session.access_token);
+          setToken(session.access_token);
+        }
+        
         if (session?.user) {
           const userData = {
             id: session.user.id,
@@ -83,9 +89,13 @@ export const AuthProvider = ({ children }) => {
           setUser(userData);
         } else {
           setUser(null);
+          localStorage.removeItem('token');
+          setToken(null);
         }
       } catch (error) {
         console.error('Error getting session:', error);
+        localStorage.removeItem('token');
+        setToken(null);
       } finally {
         setLoading(false);
       }
@@ -97,7 +107,14 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       
-      // Extract user data including full_name from metadata
+      if (session?.access_token) {
+        localStorage.setItem('token', session.access_token);
+        setToken(session.access_token);
+      } else {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
+      
       if (session?.user) {
         const userData = {
           id: session.user.id,
@@ -118,6 +135,20 @@ export const AuthProvider = ({ children }) => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const getToken = () => {
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) {
+      console.warn('No token found');
+      return null;
+    }
+    return currentToken;
+  };
+
+  const isTokenValid = () => {
+    const currentToken = getToken();
+    return !!currentToken;
+  };
 
   const login = async (email, password) => {
     try {
@@ -161,7 +192,12 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      // Extract user data with full_name from metadata
+      // Store token
+      if (data.session?.access_token) {
+        localStorage.setItem('token', data.session.access_token);
+        setToken(data.session.access_token);
+      }
+      
       const userData = {
         id: data.user.id,
         email: data.user.email,
@@ -176,7 +212,7 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       setSession(data.session);
       toast.success(`Welcome back, ${userData.full_name}!`);
-      return { success: true, user: userData };
+      return { success: true, user: userData, token: data.session?.access_token };
     } catch (error) {
       const message = error.message || 'Login failed. Please check your credentials.';
       toast.error(message);
@@ -188,15 +224,15 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       console.log('Attempting registration:', userData.email);
-      console.log('Full name being sent:', userData.full_name); // Debug log
+      console.log('Full name being sent:', userData.full_name);
       
       const { data, error } = await supabase.auth.signUp({
         email: userData.email,
         password: userData.password,
         options: {
           data: {
-            full_name: userData.full_name,  // This is key!
-            name: userData.full_name        // Also set as name for compatibility
+            full_name: userData.full_name,
+            name: userData.full_name
           }
         }
       });
@@ -274,6 +310,8 @@ export const AuthProvider = ({ children }) => {
       await supabase.auth.signOut();
       setUser(null);
       setSession(null);
+      localStorage.removeItem('token');
+      setToken(null);
       toast.success('Logged out successfully');
     } catch (error) {
       console.error('Logout error:', error);
@@ -311,27 +349,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   const getAccessToken = () => {
-    return session?.access_token || null;
+    return session?.access_token || localStorage.getItem('token') || null;
   };
 
   const getUserName = () => {
     return user?.full_name || user?.email?.split('@')[0] || 'User';
   };
 
+  const value = {
+    user,
+    session,
+    token,
+    loading,
+    login,
+    register,
+    logout,
+    resendVerification,
+    updateUser,
+    getAccessToken,
+    getUserName,
+    getToken,
+    isTokenValid,
+    isAuthenticated: !!user && !!getAccessToken()
+  };
+
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session,
-      loading, 
-      login, 
-      register, 
-      logout,
-      resendVerification,
-      updateUser,
-      getAccessToken,
-      getUserName,
-      isAuthenticated: !!user
-    }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

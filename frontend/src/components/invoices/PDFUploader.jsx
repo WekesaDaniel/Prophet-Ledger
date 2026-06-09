@@ -5,6 +5,7 @@ import { Upload, FileText, Image, File, Loader, CheckCircle, XCircle } from 'luc
 import { supabase } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { extractInvoiceText, processInvoice } from '../../services/uploadService';
 
 const SUPPORTED_FILE_TYPES = {
   'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false, extensions: ['.pdf'] },
@@ -27,59 +28,37 @@ const ACCEPT_OBJECT = {
 };
 
 const PDFUploader = ({ onUploadComplete }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
 
-  // Get API URL - use relative path for production, full URL for development
-  const getApiUrl = () => {
-    // In production, use relative path (Vercel handles routing)
-    if (process.env.NODE_ENV === 'production') {
-      return '/api';
+  // Get valid token
+  const getValidToken = () => {
+    const authToken = localStorage.getItem('token');
+    if (!authToken) {
+      toast.error('Please login again');
+      logout();
+      return null;
     }
-    return process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+    return authToken;
   };
 
-  // Extract text from file using backend (handles PDF, DOCX, XLSX, Images)
+  // Extract text from file using uploadService
   const extractTextFromFile = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
+    const authToken = getValidToken();
+    if (!authToken) throw new Error('Not authenticated');
     
-    const response = await fetch(`${getApiUrl()}/invoices/extract-text`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      }
-      // Don't set Content-Type header for FormData (browser sets it with boundary)
-    });
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Extraction failed' }));
-      throw new Error(error.detail || 'Extraction failed');
-    }
-    const data = await response.json();
+    const data = await extractInvoiceText(file);
     return data.text;
   };
 
+  // Process file with backend using uploadService
   const processFileWithBackend = async (file, extractedText) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('extracted_text', extractedText);
+    const authToken = getValidToken();
+    if (!authToken) throw new Error('Not authenticated');
     
-    const response = await fetch(`${getApiUrl()}/invoices/process`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: formData
-    });
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Processing failed' }));
-      throw new Error(error.detail || 'Processing failed');
-    }
-    return response.json();
+    return await processInvoice(file, extractedText);
   };
 
   const onDrop = useCallback(async (acceptedFiles, fileRejections) => {
@@ -91,6 +70,13 @@ const PDFUploader = ({ onUploadComplete }) => {
 
     const file = acceptedFiles[0];
     if (!file) return;
+
+    // Check authentication first
+    const authToken = getValidToken();
+    if (!authToken) {
+      toast.error('Please login to upload invoices');
+      return;
+    }
 
     const fileType = file.type;
     const isSupported = Object.keys(ACCEPT_OBJECT).includes(fileType);
@@ -111,8 +97,8 @@ const PDFUploader = ({ onUploadComplete }) => {
       }
     }
 
-    if (!fileSupport || !user?.id) {
-      toast.error(!user?.id ? 'Please login to upload invoices' : 'Unsupported file type');
+    if (!fileSupport) {
+      toast.error('Unsupported file type');
       return;
     }
 
@@ -125,7 +111,6 @@ const PDFUploader = ({ onUploadComplete }) => {
     setUploadStatus('uploading');
 
     try {
-      // Extract text from file using backend (handles all formats)
       const loadingToast = toast.loading('Processing file...');
       const extractedText = await extractTextFromFile(file);
       toast.dismiss(loadingToast);
@@ -148,7 +133,6 @@ const PDFUploader = ({ onUploadComplete }) => {
         .from('invoices')
         .getPublicUrl(fileName);
 
-      // Process extracted text to get structured invoice data
       const extractedData = await processFileWithBackend(file, extractedText);
       
       const invoiceData = {
@@ -184,7 +168,7 @@ const PDFUploader = ({ onUploadComplete }) => {
       setUploading(false);
       setTimeout(() => setUploadStatus(null), 3000);
     }
-  }, [user?.id, onUploadComplete]);
+  }, [user?.id, onUploadComplete, logout]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
