@@ -10,8 +10,6 @@ from supabase import create_client, Client
 from groq import Groq
 import numpy as np
 from datetime import datetime, timedelta
-from app.database import get_db
-from sqlalchemy.orm import Session
 
 from app.services.risk_service import RiskScoreService
 
