@@ -11,3 +11,6 @@ groq
 numpy
 requests
 joblib
+PyPDF2
+python-docx
+openpyxl

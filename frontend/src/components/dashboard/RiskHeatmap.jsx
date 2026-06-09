@@ -17,7 +17,7 @@ const RiskHeatmap = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
 
-      // Fetch all expense transactions
+      // Fetch all expense transactions with proper case normalization
       const { data: transactions, error } = await supabase
         .from('transactions')
         .select('category, amount')
@@ -26,20 +26,27 @@ const RiskHeatmap = () => {
 
       if (error) throw error;
 
-      // Calculate risk per category
+      // Normalize categories (capitalize first letter, rest lowercase)
+      const normalizeCategory = (cat) => {
+        if (!cat) return 'Other';
+        return cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+      };
+
+      // Group by normalized category
       const categoryMap = new Map();
       
-      transactions.forEach(t => {
-        if (!categoryMap.has(t.category)) {
-          categoryMap.set(t.category, { amounts: [], total: 0, count: 0 });
+      (transactions || []).forEach(t => {
+        const normalizedName = normalizeCategory(t.category);
+        if (!categoryMap.has(normalizedName)) {
+          categoryMap.set(normalizedName, { amounts: [], total: 0, count: 0 });
         }
-        const cat = categoryMap.get(t.category);
+        const cat = categoryMap.get(normalizedName);
         cat.amounts.push(t.amount);
         cat.total += t.amount;
         cat.count++;
       });
 
-      // Calculate risk score (volatility based)
+      // Calculate risk score (coefficient of variation based)
       const riskData = Array.from(categoryMap.entries()).map(([name, data]) => {
         const avg = data.total / data.count;
         const variance = data.amounts.reduce((sum, amt) => sum + Math.pow(amt - avg, 2), 0) / data.count;
@@ -51,10 +58,15 @@ const RiskHeatmap = () => {
         else if (cv > 1.0) risk = 65;
         else if (cv > 0.5) risk = 45;
         
+        // Boost risk for categories with high average spending
+        if (avg > 500) risk = Math.min(risk + 15, 95);
+        
         return {
-          name: name || 'Other',
-          risk: risk,
+          name,
+          risk: Math.round(risk),
           amount: Math.round(data.total),
+          count: data.count,
+          avgAmount: Math.round(avg),
           status: risk < 30 ? 'low' : risk < 60 ? 'medium' : 'high'
         };
       });
@@ -62,26 +74,71 @@ const RiskHeatmap = () => {
       // Sort by risk (highest first)
       riskData.sort((a, b) => b.risk - a.risk);
       
-      setCategories(riskData.length > 0 ? riskData : [
-        { name: 'Groceries', risk: 25, amount: 450, status: 'low' },
-        { name: 'Dining', risk: 65, amount: 780, status: 'medium' },
-        { name: 'Shopping', risk: 85, amount: 1250, status: 'high' },
-      ]);
+      setCategories(riskData.length > 0 ? riskData : getDefaultCategories());
+      
+      // Also save to risk_categories table for persistence
+      await saveRiskCategories(user.id, riskData);
+      
     } catch (error) {
       console.error('Failed to fetch risk data:', error);
-      setCategories([
-        { name: 'Groceries', risk: 25, amount: 450, status: 'low' },
-        { name: 'Dining', risk: 65, amount: 780, status: 'medium' },
-        { name: 'Shopping', risk: 85, amount: 1250, status: 'high' },
-        { name: 'Transport', risk: 35, amount: 320, status: 'low' },
-        { name: 'Entertainment', risk: 45, amount: 280, status: 'medium' },
-      ]);
+      setCategories(getDefaultCategories());
     } finally {
       setLoading(false);
     }
   };
 
-  // Rest of component remains the same...
+  const saveRiskCategories = async (userId, riskData) => {
+    try {
+      // Delete old risk categories
+      await supabase.from('risk_categories').delete().eq('user_id', userId);
+      
+      // Insert new risk categories
+      for (const cat of riskData) {
+        await supabase.from('risk_categories').insert({
+          user_id: userId,
+          category: cat.name,
+          risk_score: cat.risk,
+          amount: cat.amount
+        });
+      }
+      
+      // Calculate and save overall risk score
+      const overallRisk = Math.round(riskData.reduce((sum, cat) => sum + cat.risk, 0) / riskData.length);
+      let riskLevel = 'low';
+      if (overallRisk >= 60) riskLevel = 'high';
+      else if (overallRisk >= 30) riskLevel = 'medium';
+      
+      await supabase.from('risk_scores').upsert({
+        user_id: userId,
+        risk_score: overallRisk,
+        risk_level: riskLevel,
+        active_anomalies: 0,
+        recommendation: getRiskRecommendation(overallRisk),
+        updated_at: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Failed to save risk scores:', error);
+    }
+  };
+
+  const getRiskRecommendation = (score) => {
+    if (score >= 70) return 'Urgent: Review your high-risk spending categories immediately.';
+    if (score >= 50) return 'Monitor your medium-risk categories and consider budget adjustments.';
+    if (score >= 30) return 'Your spending patterns are moderately stable. Keep tracking.';
+    return 'Excellent! Your spending is very consistent. Continue your good habits.';
+  };
+
+  const getDefaultCategories = () => [
+    { name: 'Groceries', risk: 25, amount: 450, status: 'low' },
+    { name: 'Dining', risk: 65, amount: 780, status: 'medium' },
+    { name: 'Shopping', risk: 85, amount: 1250, status: 'high' },
+    { name: 'Transport', risk: 35, amount: 320, status: 'low' },
+    { name: 'Entertainment', risk: 45, amount: 280, status: 'medium' },
+    { name: 'Utilities', risk: 15, amount: 350, status: 'low' },
+    { name: 'Health', risk: 55, amount: 180, status: 'medium' },
+    { name: 'Rent', risk: 10, amount: 1500, status: 'low' },
+  ];
+
   const getRiskColor = (risk) => {
     if (risk < 30) return 'bg-green-500';
     if (risk < 60) return 'bg-yellow-500';
@@ -132,7 +189,7 @@ const RiskHeatmap = () => {
             <div className={`h-2 ${getRiskColor(cat.risk)}`}></div>
             <div className="p-4">
               <div className="flex justify-between items-start mb-2">
-                <h4 className="font-medium text-gray-800">{cat.name}</h4>
+                <h4 className="font-medium text-gray-800 capitalize">{cat.name}</h4>
                 {getSeverityIcon(cat.risk)}
               </div>
               <div className="mt-2">
@@ -145,7 +202,8 @@ const RiskHeatmap = () => {
                 </div>
               </div>
               <div className="mt-3 pt-2 border-t text-xs text-gray-500">
-                <div className="flex justify-between"><span>Amount:</span><span className="font-medium">${cat.amount?.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span>Total Spent:</span><span className="font-medium">${cat.amount?.toLocaleString()}</span></div>
+                <div className="flex justify-between mt-1"><span>Avg Transaction:</span><span className="font-medium">${cat.avgAmount?.toLocaleString()}</span></div>
                 <div className="flex justify-between mt-1"><span>Status:</span><span className={`font-medium ${getRiskTextColor(cat.risk)}`}>{getRiskLabel(cat.risk)}</span></div>
               </div>
             </div>
@@ -173,8 +231,9 @@ const RiskHeatmap = () => {
       <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
         <p className="font-medium mb-1">About Risk Scoring:</p>
         <ul className="list-disc list-inside space-y-1">
-          <li>Risk is calculated based on spending volatility compared to average</li>
-          <li>High risk categories may need budget review or monitoring</li>
+          <li>Risk is calculated based on spending volatility (coefficient of variation)</li>
+          <li>Higher volatility = higher risk score</li>
+          <li>Categories exceeding your custom limits will be flagged as anomalies</li>
           <li>Regular review of medium/high risk categories helps optimize spending</li>
         </ul>
       </div>

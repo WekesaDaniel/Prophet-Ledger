@@ -26,11 +26,24 @@ const AnomalyTable = ({ limit = null }) => {
     avgRiskScore: 0
   });
 
+  // Normalize category names for consistency
+  const normalizeCategory = (cat) => {
+    if (!cat) return 'Other';
+    return cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+  };
+
   useEffect(() => {
-    fetchAnomalies();
-    fetchUserLimits();
-    fetchStats();
+    fetchData();
   }, []);
+
+  const fetchData = async () => {
+    await Promise.all([
+      fetchAnomalies(),
+      fetchUserLimits(),
+      fetchStats(),
+      checkTransactionsAgainstLimits()
+    ]);
+  };
 
   const fetchStats = async () => {
     try {
@@ -60,108 +73,6 @@ const AnomalyTable = ({ limit = null }) => {
     }
   };
 
-  const fetchAnomalies = async () => {
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No user');
-
-      // Fetch anomalies with transaction details
-      const { data, error } = await supabase
-        .from('anomalies')
-        .select(`
-          id,
-          amount,
-          description,
-          category,
-          anomaly_score,
-          reason,
-          status,
-          created_at,
-          transaction_id
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        setAnomalies(data);
-      } else {
-        // If no anomalies, check recent transactions for potential anomalies
-        await checkRecentTransactionsForAnomalies();
-      }
-    } catch (error) {
-      console.error('Failed to fetch anomalies:', error);
-      setAnomalies([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkRecentTransactionsForAnomalies = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Get recent transactions (last 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const { data: transactions, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-        .order('amount', { ascending: false })
-        .limit(10);
-
-      if (error) throw error;
-
-      if (transactions && transactions.length > 0) {
-        // Calculate average spending by category
-        const { data: categoryAverages } = await supabase
-          .from('transactions')
-          .select('category, amount')
-          .eq('user_id', user.id)
-          .eq('type', 'expense');
-
-        const avgByCategory = {};
-        categoryAverages?.forEach(t => {
-          if (!avgByCategory[t.category]) {
-            avgByCategory[t.category] = { sum: 0, count: 0 };
-          }
-          avgByCategory[t.category].sum += t.amount;
-          avgByCategory[t.category].count++;
-        });
-
-        // Detect anomalies
-        const detectedAnomalies = [];
-        for (const transaction of transactions) {
-          const avg = avgByCategory[transaction.category]?.sum / avgByCategory[transaction.category]?.count || 0;
-          const ratio = avg > 0 ? transaction.amount / avg : 1;
-          
-          if (ratio > 2.5) {
-            detectedAnomalies.push({
-              id: transaction.id,
-              amount: transaction.amount,
-              description: transaction.description,
-              category: transaction.category,
-              anomaly_score: Math.min(95, Math.round(ratio * 25)),
-              reason: `${ratio.toFixed(1)}x above average spending for ${transaction.category}`,
-              status: 'pending',
-              created_at: transaction.date
-            });
-          }
-        }
-
-        setAnomalies(detectedAnomalies.slice(0, 10));
-      }
-    } catch (error) {
-      console.error('Failed to check transactions:', error);
-    }
-  };
-
   const fetchUserLimits = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -177,6 +88,177 @@ const AnomalyTable = ({ limit = null }) => {
       setUserLimits(data || []);
     } catch (error) {
       console.error('Failed to fetch limits:', error);
+    }
+  };
+
+  const checkTransactionsAgainstLimits = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || userLimits.length === 0) return;
+
+      // Get transactions from last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'expense')
+        .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
+
+      if (error) throw error;
+
+      const limitMap = new Map();
+      userLimits.forEach(limit => {
+        limitMap.set(normalizeCategory(limit.category), limit);
+      });
+
+      const newAnomalies = [];
+
+      for (const transaction of transactions || []) {
+        const normalizedCat = normalizeCategory(transaction.category);
+        const limit = limitMap.get(normalizedCat);
+        
+        if (limit && transaction.amount > limit.limit_amount) {
+          // Check if anomaly already exists for this transaction
+          const { data: existing } = await supabase
+            .from('anomalies')
+            .select('id')
+            .eq('transaction_id', transaction.id)
+            .single();
+
+          if (!existing) {
+            const excessPercent = ((transaction.amount - limit.limit_amount) / limit.limit_amount) * 100;
+            newAnomalies.push({
+              user_id: user.id,
+              transaction_id: transaction.id,
+              amount: transaction.amount,
+              description: transaction.description,
+              category: normalizedCat,
+              anomaly_score: Math.min(95, 50 + Math.floor(excessPercent / 2)),
+              reason: `Transaction of $${transaction.amount.toLocaleString()} exceeded your $${limit.limit_amount} limit for ${normalizedCat} by ${Math.round(excessPercent)}%`,
+              status: 'pending',
+              created_at: transaction.date
+            });
+          }
+        }
+      }
+
+      // Insert new anomalies
+      if (newAnomalies.length > 0) {
+        const { error: insertError } = await supabase
+          .from('anomalies')
+          .insert(newAnomalies);
+
+        if (insertError) throw insertError;
+      }
+
+      // Refresh anomalies list
+      await fetchAnomalies();
+      
+    } catch (error) {
+      console.error('Failed to check transactions against limits:', error);
+    }
+  };
+
+  const fetchAnomalies = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user');
+
+      const { data, error } = await supabase
+        .from('anomalies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setAnomalies(data);
+      } else {
+        // If no anomalies, check recent transactions
+        await checkTransactionsForStatisticalAnomalies();
+      }
+    } catch (error) {
+      console.error('Failed to fetch anomalies:', error);
+      setAnomalies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkTransactionsForStatisticalAnomalies = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'expense')
+        .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
+
+      if (error) throw error;
+
+      // Calculate average spending by category
+      const categorySpending = new Map();
+      transactions?.forEach(t => {
+        const cat = normalizeCategory(t.category);
+        if (!categorySpending.has(cat)) {
+          categorySpending.set(cat, { sum: 0, count: 0, amounts: [] });
+        }
+        const data = categorySpending.get(cat);
+        data.sum += t.amount;
+        data.count++;
+        data.amounts.push(t.amount);
+      });
+
+      const newAnomalies = [];
+      
+      for (const transaction of transactions || []) {
+        const cat = normalizeCategory(transaction.category);
+        const catData = categorySpending.get(cat);
+        
+        if (catData && catData.count > 2) {
+          const avg = catData.sum / catData.count;
+          const stdDev = Math.sqrt(
+            catData.amounts.reduce((sum, amt) => sum + Math.pow(amt - avg, 2), 0) / catData.count
+          );
+          const zScore = stdDev > 0 ? (transaction.amount - avg) / stdDev : 0;
+          
+          if (zScore > 2.5) {
+            newAnomalies.push({
+              user_id: user.id,
+              transaction_id: transaction.id,
+              amount: transaction.amount,
+              description: transaction.description,
+              category: cat,
+              anomaly_score: Math.min(95, Math.round(50 + zScore * 10)),
+              reason: `${zScore.toFixed(1)} standard deviations above average for ${cat} (avg: $${Math.round(avg)})`,
+              status: 'pending',
+              created_at: transaction.date
+            });
+          }
+        }
+      }
+
+      if (newAnomalies.length > 0) {
+        const { error: insertError } = await supabase
+          .from('anomalies')
+          .insert(newAnomalies);
+          
+        if (insertError) throw insertError;
+        await fetchAnomalies();
+      }
+    } catch (error) {
+      console.error('Failed statistical check:', error);
     }
   };
 
@@ -240,7 +322,8 @@ const AnomalyTable = ({ limit = null }) => {
       setShowLimitModal(false);
       setSelectedCategory('');
       setLimitAmount('');
-      fetchUserLimits();
+      await fetchUserLimits();
+      await checkTransactionsAgainstLimits();
     } catch (error) {
       console.error('Failed to set limit:', error);
       toast.error('Failed to set limit');
@@ -261,7 +344,7 @@ const AnomalyTable = ({ limit = null }) => {
       if (error) throw error;
 
       toast.success(`Limit removed for ${category}`);
-      fetchUserLimits();
+      await fetchUserLimits();
     } catch (error) {
       console.error('Failed to delete limit:', error);
       toast.error('Failed to remove limit');
@@ -342,11 +425,12 @@ const AnomalyTable = ({ limit = null }) => {
         {userLimits.length > 0 && (
           <div className="p-3 bg-blue-50 border-b flex flex-wrap gap-2 items-center">
             <Shield className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-medium text-blue-700">Active Limits:</span>
+            <span className="text-sm font-medium text-blue-700">Active Spending Limits:</span>
             {userLimits.map(limit => (
               <div key={limit.category} className="flex items-center gap-1 bg-white px-2 py-1 rounded-full shadow-sm text-xs">
-                <span className="font-medium">{limit.category}:</span>
-                <span>${limit.limit_amount}</span>
+                <span className="font-medium capitalize">{limit.category}:</span>
+                <span>${limit.limit_amount.toLocaleString()}</span>
+                <span className="text-gray-400">/{limit.period}</span>
                 <button 
                   onClick={() => handleDeleteLimit(limit.category)}
                   className="text-red-500 hover:text-red-700 ml-1"
@@ -377,8 +461,8 @@ const AnomalyTable = ({ limit = null }) => {
                 <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
                   <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-2" />
                   <p>No anomalies detected! Your transactions look normal.</p>
-                  <p className="text-xs mt-1">Set custom limits to monitor specific categories.</p>
-                </td>
+                  <p className="text-xs mt-1">Set custom spending limits to monitor specific categories.</p>
+                 </td>
               </tr>
             ) : (
               displayAnomalies.map(anomaly => {
@@ -394,7 +478,7 @@ const AnomalyTable = ({ limit = null }) => {
                         <p className="text-sm font-medium">{anomaly.description || 'Unknown'}</p>
                         <p className="text-xs text-gray-500 flex items-center gap-1">
                           <Tag className="w-3 h-3" />
-                          {anomaly.category || 'Uncategorized'}
+                          <span className="capitalize">{anomaly.category || 'Uncategorized'}</span>
                         </p>
                       </div>
                     </td>
@@ -468,7 +552,7 @@ const AnomalyTable = ({ limit = null }) => {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold flex items-center gap-2">
               <Settings className="w-5 h-5" />
-              Set Custom Limit
+              Set Spending Limit
             </h2>
             <button onClick={() => setShowLimitModal(false)} className="text-gray-500 hover:text-gray-700">
               <XCircle className="w-5 h-5" />
@@ -484,11 +568,21 @@ const AnomalyTable = ({ limit = null }) => {
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Select Category</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
+                {categories.length > 0 ? categories.map(cat => (
+                  <option key={cat} value={cat} className="capitalize">{cat}</option>
+                )) : (
+                  <>
+                    <option value="Groceries">Groceries</option>
+                    <option value="Dining">Dining</option>
+                    <option value="Shopping">Shopping</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Entertainment">Entertainment</option>
+                    <option value="Utilities">Utilities</option>
+                    <option value="Health">Health</option>
+                    <option value="Rent">Rent</option>
+                  </>
+                )}
                 <option value="Other">Other</option>
-                <option value="All">All Categories</option>
               </select>
             </div>
             

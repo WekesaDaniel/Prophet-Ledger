@@ -6,34 +6,36 @@ from pydantic import BaseModel
 from datetime import datetime
 import re
 import io
+import os
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.models.invoice import Invoice
+from app.models.transaction import Transaction, TransactionType, TransactionCategory
 
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 
-# Try to import optional dependencies
+# Try to import optional dependencies with fallbacks
 try:
     import PyPDF2
     PDF_SUPPORT = True
 except ImportError:
     PDF_SUPPORT = False
-    print("Warning: PyPDF2 not installed. PDF support disabled.")
+    print("⚠️ PyPDF2 not installed. PDF support disabled.")
 
 try:
     from docx import Document
     DOCX_SUPPORT = True
 except ImportError:
     DOCX_SUPPORT = False
-    print("Warning: python-docx not installed. Word document support disabled.")
+    print("⚠️ python-docx not installed. Word document support disabled.")
 
 try:
     import openpyxl
     XLSX_SUPPORT = True
 except ImportError:
     XLSX_SUPPORT = False
-    print("Warning: openpyxl not installed. Excel support disabled.")
+    print("⚠️ openpyxl not installed. Excel support disabled.")
 
 
 class InvoiceResponse(BaseModel):
@@ -65,7 +67,7 @@ class InvoiceCreate(BaseModel):
 def extract_text_from_pdf(file_content: bytes) -> str:
     """Extract text from PDF using PyPDF2"""
     if not PDF_SUPPORT:
-        return ""
+        return "PDF support not available"
     try:
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
         text = ""
@@ -82,7 +84,7 @@ def extract_text_from_pdf(file_content: bytes) -> str:
 def extract_text_from_docx(file_content: bytes) -> str:
     """Extract text from Word document"""
     if not DOCX_SUPPORT:
-        return ""
+        return "Word support not available"
     try:
         doc = Document(io.BytesIO(file_content))
         text = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text])
@@ -100,7 +102,7 @@ def extract_text_from_docx(file_content: bytes) -> str:
 def extract_text_from_xlsx(file_content: bytes) -> str:
     """Extract text from Excel file"""
     if not XLSX_SUPPORT:
-        return ""
+        return "Excel support not available"
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
         text = ""
@@ -121,7 +123,7 @@ def extract_invoice_data(text: str) -> dict:
     """Extract invoice data using regex patterns"""
     data = {}
     
-    if not text:
+    if not text or len(text.strip()) < 10:
         return {
             'vendor': 'Unknown',
             'total': 0.0,
@@ -135,7 +137,8 @@ def extract_invoice_data(text: str) -> dict:
         r'(?:Vendor|From|Company|Store|Merchant|Seller|Supplier)[:\s]+([^\n]+)',
         r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+Invoice',
         r'Bill To:?\s*([^\n]+)',
-        r'(?:Sold by|Provided by)[:\s]+([^\n]+)'
+        r'(?:Sold by|Provided by)[:\s]+([^\n]+)',
+        r'(?:Business Name)[:\s]+([^\n]+)'
     ]
     for pattern in vendor_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -213,12 +216,60 @@ def extract_invoice_data(text: str) -> dict:
     return data
 
 
+def create_transaction_from_invoice(user_id: int, invoice_data: dict, db: Session):
+    """Create a transaction record from extracted invoice data"""
+    try:
+        # Determine if it's income or expense based on context
+        transaction_type = TransactionType.EXPENSE  # Default to expense for invoices
+        
+        # Map category to TransactionCategory enum
+        category_map = {
+            'groceries': TransactionCategory.GROCERIES,
+            'dining': TransactionCategory.DINING,
+            'transport': TransactionCategory.TRANSPORT,
+            'utilities': TransactionCategory.UTILITIES,
+            'entertainment': TransactionCategory.ENTERTAINMENT,
+            'shopping': TransactionCategory.SHOPPING,
+            'health': TransactionCategory.HEALTH,
+            'rent': TransactionCategory.RENT,
+            'income': TransactionCategory.INCOME,
+        }
+        
+        vendor_lower = invoice_data.get('vendor', '').lower()
+        category = TransactionCategory.OTHER
+        
+        for key, cat in category_map.items():
+            if key in vendor_lower:
+                category = cat
+                break
+        
+        # Create transaction
+        transaction = Transaction(
+            user_id=user_id,
+            amount=abs(invoice_data.get('total', 0)),
+            description=f"Invoice from {invoice_data.get('vendor', 'Unknown')} - {invoice_data.get('invoiceNumber', '')}",
+            category=category,
+            type=transaction_type,
+            date=datetime.strptime(invoice_data.get('date', datetime.now().strftime('%Y-%m-%d')), '%Y-%m-%d'),
+            vendor=invoice_data.get('vendor', 'Unknown')
+        )
+        
+        db.add(transaction)
+        db.commit()
+        db.refresh(transaction)
+        
+        return transaction
+    except Exception as e:
+        print(f"Error creating transaction: {e}")
+        return None
+
+
 @router.post("/extract-text")
 async def extract_text_only(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    """Extract raw text from uploaded file (no OCR processing)"""
+    """Extract raw text from uploaded file"""
     try:
         contents = await file.read()
         file_type = file.content_type
@@ -237,7 +288,7 @@ async def extract_text_only(
         ]:
             text = extract_text_from_xlsx(contents)
         else:
-            raise HTTPException(status_code=400, detail=f"File type not supported for text extraction: {file_type}")
+            raise HTTPException(status_code=400, detail=f"File type not supported: {file_type}")
         
         return {"text": text, "filename": file.filename, "file_type": file_type}
         
@@ -249,7 +300,8 @@ async def extract_text_only(
 async def process_invoice(
     file: UploadFile = File(...),
     extracted_text: str = Form(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Process extracted text and return structured invoice data"""
     try:
@@ -269,6 +321,32 @@ async def process_invoice(
     except Exception as e:
         print(f"Processing error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to process invoice data: {str(e)}")
+
+
+@router.post("/create-transaction")
+async def create_transaction_from_invoice_endpoint(
+    invoice_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a transaction from a processed invoice"""
+    invoice = db.query(Invoice).filter(
+        Invoice.id == invoice_id,
+        Invoice.user_id == current_user.id
+    ).first()
+    
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    transaction = create_transaction_from_invoice(current_user.id, invoice.extracted_data, db)
+    
+    if transaction:
+        # Update invoice status
+        invoice.status = "processed"
+        db.commit()
+        return {"message": "Transaction created successfully", "transaction_id": transaction.id}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to create transaction")
 
 
 @router.get("/", response_model=List[InvoiceResponse])
