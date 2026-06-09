@@ -5,7 +5,17 @@ import { Upload, FileText, Image, File, Loader, CheckCircle, XCircle } from 'luc
 import { supabase } from '../../services/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
-import { createWorker } from 'tesseract.js';
+
+// Dynamically import tesseract.js to avoid loading issues
+let Tesseract = null;
+
+const loadTesseract = async () => {
+  if (!Tesseract) {
+    const module = await import('tesseract.js');
+    Tesseract = module.default || module;
+  }
+  return Tesseract;
+};
 
 const SUPPORTED_FILE_TYPES = {
   'application/pdf': { icon: FileText, label: 'PDF', needsOcr: false, extensions: ['.pdf'] },
@@ -36,11 +46,14 @@ const PDFUploader = ({ onUploadComplete }) => {
 
   // Client-side OCR for images using tesseract.js
   const extractTextFromImage = async (file) => {
-    const worker = await createWorker('eng');
+    const TesseractModule = await loadTesseract();
     
-    worker.setLogger(m => {
-      if (m.status === 'recognizing text') {
-        setOcrProgress(Math.floor(m.progress * 100));
+    // Create a worker with proper API
+    const worker = await TesseractModule.createWorker('eng', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          setOcrProgress(Math.floor(m.progress * 100));
+        }
       }
     });
     
@@ -129,11 +142,18 @@ const PDFUploader = ({ onUploadComplete }) => {
       
       // For images, use client-side OCR
       if (fileSupport.needsOcr) {
-        toast.loading('Running OCR on image...', { id: 'ocr' });
-        extractedText = await extractTextFromImage(file);
-        toast.dismiss('ocr');
+        toast.loading('Running OCR on image... This may take a moment.', { id: 'ocr' });
+        try {
+          extractedText = await extractTextFromImage(file);
+          toast.dismiss('ocr');
+        } catch (ocrError) {
+          console.error('OCR error:', ocrError);
+          toast.dismiss('ocr');
+          // Fallback: use filename as description
+          extractedText = `Invoice image: ${file.name}`;
+        }
       } else {
-        // For PDFs/Word/Excel, try to extract filename info
+        // For PDFs/Word/Excel, use filename as description
         extractedText = file.name;
       }
       
@@ -154,7 +174,7 @@ const PDFUploader = ({ onUploadComplete }) => {
         .from('invoices')
         .getPublicUrl(fileName);
 
-      // Match your invoices table schema exactly - NO file_name column
+      // Match your invoices table schema exactly
       const invoiceData = {
         user_id: user.id,
         vendor: extractedData.vendor,
