@@ -15,16 +15,13 @@ export const sendChatMessage = async (query) => {
     // Fetch user's financial data for context
     const userData = await fetchUserFinancialData(user?.id);
     
-    // Create enhanced query with context
-    const enhancedQuery = createEnhancedQuery(query, userData);
-    
     if (USE_MOCK_API) {
-      const mockResponse = await getMockChatResponse(enhancedQuery, userData);
+      const mockResponse = await getSmartMockResponse(query, userData);
       console.log('📥 Mock chat response:', mockResponse);
       return mockResponse;
     }
     
-    const response = await api.post('/chatbot/query', { query: enhancedQuery, user_context: userData });
+    const response = await api.post('/chatbot/query', { query, user_context: userData });
     console.log('📥 Chat response:', response.data);
     return response.data;
   } catch (error) {
@@ -38,95 +35,194 @@ export const sendChatMessage = async (query) => {
   }
 };
 
-// Mock response generator for recommendations
-const getMockChatResponse = async (query, userData) => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
+// Smart mock response that handles different query types naturally
+const getSmartMockResponse = async (query, userData) => {
+  await new Promise(resolve => setTimeout(resolve, 500));
   
-  // Check if this is a recommendations request
-  if (query.includes('specific, actionable recommendations') || query.includes('recommendations')) {
+  const queryLower = query.toLowerCase();
+  
+  // Handle "Show me anomalies" or anomaly-related queries
+  if (queryLower.includes('anomal') || queryLower.includes('unusual') || queryLower.includes('suspicious')) {
+    const anomalyCount = userData?.anomalyCount || 0;
+    
+    if (anomalyCount === 0) {
+      return {
+        query: query,
+        response: "✅ **No anomalies detected**\n\nGreat news! I've analyzed your recent transactions and found no unusual or suspicious activity. Your spending patterns are consistent with your history.\n\nWould you like me to help you with:\n• Setting up anomaly alerts\n• Reviewing your spending patterns\n• Checking your risk score",
+        intent: "anomaly",
+        confidence: 0.95
+      };
+    } else {
+      return {
+        query: query,
+        response: `🚨 **${anomalyCount} Anomal${anomalyCount === 1 ? 'y' : 'ies'} Detected**\n\nI've found ${anomalyCount} transaction${anomalyCount === 1 ? '' : 's'} that don't match your usual spending pattern. These could be:\n• Unusual large purchases\n• Unexpected recurring charges\n• Potential fraud\n\n**Recommended action:** Review these transactions immediately in the Anomalies page.\n\nWould you like me to explain what makes a transaction anomalous?`,
+        intent: "anomaly",
+        confidence: 0.95
+      };
+    }
+  }
+  
+  // Handle "How much did I spend?" or spending queries
+  if (queryLower.includes('spent') || queryLower.includes('spend') || queryLower.includes('expense')) {
+    const totalExpenses = userData?.totalExpenses || 2118093;
+    const topCategory = userData?.topSpendingCategories?.[0];
+    
     return {
       query: query,
-      response: JSON.stringify({
-        recommendations: [
-          {
-            type: "warning",
-            title: "Review 'Other' Spending",
-            description: "Categorize $1.6M in 'other' expenses to identify savings",
-            action: "Review Now"
-          },
-          {
-            type: "warning", 
-            title: "Reduce Transport Costs",
-            description: "Your $500k transport spend is 5x above typical levels",
-            action: "Analyze"
-          },
-          {
-            type: "info",
-            title: "Set Monthly Budget",
-            description: "Create spending limits for your top 3 categories",
-            action: "Set Limits"
-          }
-        ]
-      }),
-      intent: "recommendations",
+      response: `💰 **Your Spending Summary (Last 90 Days)**\n\n• **Total Spent:** $${totalExpenses.toLocaleString()}\n• **Monthly Average:** $${userData?.monthlyAverage?.toLocaleString() || '706,031'}\n• **Top Category:** ${topCategory?.category || 'other'} ($${topCategory?.amount?.toLocaleString() || '1,600,000'})\n\n${totalExpenses > (userData?.totalIncome || 352005) ? '⚠️ *Note: Your expenses exceed your income. Consider reviewing your top spending categories.*' : ''}\n\nWould you like me to break down spending by category?`,
+      intent: "spending",
       confidence: 0.95
     };
   }
   
-  // Default responses
-  const queryLower = query.toLowerCase();
-  
-  if (queryLower.includes("spent") || queryLower.includes("spend")) {
+  // Handle "What's my risk score?" queries
+  if (queryLower.includes('risk score') || queryLower.includes('risk level') || queryLower.includes('financial risk')) {
+    const riskScore = userData?.riskScore || 65;
+    const riskLevel = userData?.riskLevel || 'medium';
+    
+    let riskDescription = '';
+    let recommendation = '';
+    
+    if (riskScore >= 70) {
+      riskDescription = 'high risk - your spending significantly exceeds income';
+      recommendation = 'I strongly recommend reviewing your budget and reducing expenses immediately.';
+    } else if (riskScore >= 40) {
+      riskDescription = 'medium risk - your spending patterns need attention';
+      recommendation = 'Consider setting spending limits on your top categories to improve this score.';
+    } else {
+      riskDescription = 'low risk - you\'re managing your finances well';
+      recommendation = 'Keep up the good work! Consider investing your surplus for better returns.';
+    }
+    
     return {
       query: query,
-      response: `Based on your data, you've spent **$${userData?.totalExpenses?.toLocaleString() || '2,118,093'}** in the last 90 days. Your top category is "other" at **$${userData?.topSpendingCategories?.[0]?.amount?.toLocaleString() || '1,600,000'}**. I recommend reviewing those "other" transactions to better understand where your money is going.`,
-      intent: "spending",
-      confidence: 0.9
-    };
-  }
-  
-  if (queryLower.includes("anomaly") || queryLower.includes("unusual")) {
-    return {
-      query: query,
-      response: `You have **${userData?.anomalyCount || 0} pending anomalies**. No unusual transactions have been detected recently, which means your transaction patterns appear normal based on historical data.`,
-      intent: "anomaly",
-      confidence: 0.85
-    };
-  }
-  
-  if (queryLower.includes("risk") || queryLower.includes("score")) {
-    return {
-      query: query,
-      response: `Your current financial risk score is **${userData?.riskScore || 65}/100 (${userData?.riskLevel || 'Medium'})**. Your expenses significantly exceed your income, which contributes to this risk level. Consider implementing budget recommendations to improve this score.`,
+      response: `📊 **Your Financial Risk Score: ${riskScore}/100 (${riskLevel.toUpperCase()})**\n\nThis means you're at ${riskDescription}\n\n**Factors affecting your score:**\n• Income vs Expense ratio\n• Spending patterns\n• Anomaly detection status\n\n**Recommendation:** ${recommendation}\n\nWould you like specific tips to improve your risk score?`,
       intent: "risk",
-      confidence: 0.88
+      confidence: 0.95
     };
   }
   
-  if (queryLower.includes("recommend") || queryLower.includes("advice") || queryLower.includes("suggest")) {
+  // Handle recommendations/advice queries
+  if (queryLower.includes('recommend') || queryLower.includes('advice') || queryLower.includes('suggest') || queryLower.includes('help me save')) {
+    const savings = userData?.savings || -1766088;
+    const topCategory = userData?.topSpendingCategories?.[0];
+    const otherCategory = userData?.topSpendingCategories?.find(c => c.category.toLowerCase() === 'other');
+    
+    let response = "💡 **Personalized Financial Recommendations**\n\nBased on your transaction data, here are specific actions you can take:\n\n";
+    
+    if (savings < 0) {
+      response += `**1. Critical: Reduce Overall Spending**\nYour expenses exceed your income by $${Math.abs(savings).toLocaleString()}. Focus on these areas:\n`;
+      if (otherCategory && otherCategory.amount > 100000) {
+        response += `   • Review $${otherCategory.amount.toLocaleString()} in "other" expenses - categorize these transactions\n`;
+      }
+      if (topCategory && topCategory.category !== 'other') {
+        response += `   • Reduce ${topCategory.category} spending by 30-50%\n`;
+      }
+      response += `\n`;
+    }
+    
+    if (otherCategory && otherCategory.amount > userData?.totalExpenses * 0.3) {
+      response += `**2. Categorize "Other" Transactions**\n$${otherCategory.amount.toLocaleString()} (${Math.round((otherCategory.amount / userData?.totalExpenses) * 100)}% of spending) is uncategorized. Proper categorization helps identify saving opportunities.\n\n`;
+    }
+    
+    const transportCategory = userData?.topSpendingCategories?.find(c => c.category.toLowerCase().includes('transport'));
+    if (transportCategory && transportCategory.amount > 100000) {
+      response += `**3. Optimize Transport Spending**\nYou've spent $${transportCategory.amount.toLocaleString()} on transport. Consider:\n   • Carpooling or public transit\n   • Reviewing business vs personal expenses\n   • Comparing insurance rates\n\n`;
+    }
+    
+    response += `**Next Steps:**\n• Click "Review Now" to analyze your top categories\n• Set spending limits for better control\n• Check the Anomalies page for unusual transactions\n\nWould you like me to explain any of these recommendations in more detail?`;
+    
     return {
       query: query,
-      response: "**Here are 3 specific recommendations based on your data:**\n\n1. **Review 'other' category spending** ($1,600,000) - This represents 76% of your expenses. Categorize these transactions to identify saving opportunities.\n\n2. **Reduce transport costs** - Your $500,000 transport spending is 5x higher than typical. Consider reviewing business vs personal expenses.\n\n3. **Set a monthly budget** - With expenses exceeding income by $1.77M, create spending limits for your top categories.",
+      response: response,
       intent: "advice",
-      confidence: 0.92
+      confidence: 0.95
     };
   }
   
-  if (queryLower.includes("explain this page")) {
+  // Handle "Explain this page" queries
+  if (queryLower.includes('explain this page') || queryLower.includes('what is this page') || queryLower.includes('about this page')) {
     return {
       query: query,
-      response: "📖 **About the Dashboard Page**:\n\nThis page shows your financial dashboard with key metrics, spending trends, and anomaly detection. You can view your financial health score, recent transactions, and get AI-powered recommendations based on your data.\n\nWhat specific information would you like to know?",
+      response: "📖 **About the Dashboard Page**\n\nThis is your financial command center. Here's what you can do:\n\n• **View Key Metrics** - See your income, expenses, and savings at a glance\n• **Track Anomalies** - Monitor unusual transactions that need review\n• **Get AI Recommendations** - Receive personalized financial advice\n• **Monitor Risk Score** - Track your financial health over time\n\n**Quick Tips:**\n• Click any metric to see detailed breakdowns\n• Use the chat button (bottom right) for specific questions\n• Check the Alerts bell for important notifications\n\nWhat specific aspect would you like to learn more about?",
       intent: "page_explain",
       confidence: 0.95
     };
   }
   
-  // Default response
+  // Handle budget/limit queries
+  if (queryLower.includes('budget') || queryLower.includes('limit') || queryLower.includes('track')) {
+    const hasLimits = userData?.hasLimits || false;
+    const topCategories = userData?.topSpendingCategories?.slice(0, 3) || [];
+    
+    if (!hasLimits) {
+      let response = "📊 **Budget & Limits Status**\n\nYou haven't set any spending limits yet. Based on your spending patterns, I recommend:\n\n";
+      topCategories.forEach((cat, idx) => {
+        const suggestedLimit = Math.round(cat.amount * 0.7);
+        response += `${idx + 1}. **${cat.category}**: Set a limit of $${suggestedLimit.toLocaleString()} (currently $${cat.amount.toLocaleString()})\n`;
+      });
+      response += "\nWould you like me to help you set up these spending limits?";
+      
+      return {
+        query: query,
+        response: response,
+        intent: "budget",
+        confidence: 0.9
+      };
+    } else {
+      return {
+        query: query,
+        response: "✅ **Budget Tracking Active**\n\nYou have active spending limits set. Your current spending is within budget for most categories. Keep monitoring your expenses to stay on track!\n\nWould you like to review or adjust your existing limits?",
+        intent: "budget",
+        confidence: 0.9
+      };
+    }
+  }
+  
+  // Handle forecast/prediction queries
+  if (queryLower.includes('forecast') || queryLower.includes('predict') || queryLower.includes('future')) {
+    const monthlyAvg = userData?.monthlyAverage || 706031;
+    const projectedSpending = Math.round(monthlyAvg * 1.05); // 5% increase projection
+    
+    return {
+      query: query,
+      response: `📈 **30-Day Spending Forecast**\n\nBased on your historical spending patterns, here's what I predict:\n\n• **Expected Spending:** $${projectedSpending.toLocaleString()}\n• **Confidence Level:** Medium (85%)\n• **Key Drivers:** ${userData?.topSpendingCategories?.[0]?.category || 'other'} category dominates your spending\n\n**Recommendations:**\n• Start planning for next month's expenses now\n• Consider reducing non-essential spending\n• Set aside $${Math.round(projectedSpending * 0.2).toLocaleString()} for unexpected costs\n\nWould you like a detailed breakdown by category?`,
+      intent: "forecast",
+      confidence: 0.85
+    };
+  }
+  
+  // Handle general help/capabilities queries
+  if (queryLower.includes('help') || queryLower.includes('capabilities') || queryLower.includes('what can you')) {
+    return {
+      query: query,
+      response: "🤖 **What I Can Help You With**\n\nI'm your AI Financial Assistant. Here's what I can do:\n\n**💰 Spending Analysis**\n• \"How much did I spend?\"\n• \"Show me my top spending categories\"\n• \"Break down my expenses by category\"\n\n**🚨 Anomaly Detection**\n• \"Show me anomalies\"\n• \"Any unusual transactions?\"\n• \"Is there suspicious activity?\"\n\n**📊 Financial Health**\n• \"What's my risk score?\"\n• \"How am I doing financially?\"\n• \"Give me recommendations\"\n\n**📈 Planning**\n• \"Forecast my spending\"\n• \"How can I save money?\"\n• \"Set up a budget\"\n\n**❓ Other**\n• \"Explain this page\"\n• \"What can you do?\"\n\nTry asking me any of these questions!",
+      intent: "help",
+      confidence: 0.98
+    };
+  }
+  
+  // Handle category-specific spending
+  const categoryMatch = queryLower.match(/(?:on|for)\s+(\w+)/);
+  if (categoryMatch && userData?.topSpendingCategories) {
+    const category = categoryMatch[1].toLowerCase();
+    const found = userData.topSpendingCategories.find(c => c.category.toLowerCase().includes(category));
+    if (found) {
+      return {
+        query: query,
+        response: `📊 **Spending on ${found.category}**\n\nYou've spent **$${found.amount.toLocaleString()}** on ${found.category} in the last 90 days.\n\n${found.amount > (userData?.monthlyAverage || 706031) * 0.3 ? '⚠️ This is significantly higher than typical. Consider reviewing these transactions.' : 'This seems reasonable compared to your overall spending.'}\n\nWould you like to see individual transactions in this category?`,
+        intent: "category_spending",
+        confidence: 0.9
+      };
+    }
+  }
+  
+  // Default fallback response
   return {
     query: query,
-    response: `I can help you analyze your financial data. Based on your data, I notice your expenses ($${userData?.totalExpenses?.toLocaleString() || '2,118,093'}) significantly exceed your income ($${userData?.totalIncome?.toLocaleString() || '352,005'}). Would you like specific recommendations to address this? Try asking "Give me recommendations" or "How can I save more money?"`,
-    intent: "general",
-    confidence: 0.85
+    response: "👋 **Hi there! I'm your AI Financial Assistant**\n\nI can help you with:\n• Tracking your spending\n• Detecting anomalies\n• Providing financial recommendations\n• Forecasting future expenses\n• Explaining any page on ProphetLedger\n\n**Try asking me:**\n• \"How much did I spend?\"\n• \"Show me anomalies\"\n• \"What's my risk score?\"\n• \"Give me recommendations\"\n• \"Explain this page\"\n\nWhat would you like to know about your finances today?",
+    intent: "welcome",
+    confidence: 0.9
   };
 };
 
@@ -141,7 +237,7 @@ export const fetchUserFinancialData = async (userId) => {
     
     const { data: transactions, error: txError } = await supabase
       .from('transactions')
-      .select('*')
+      .select('amount, type, category, date')
       .eq('user_id', userId)
       .gte('date', ninetyDaysAgo.toISOString().split('T')[0])
       .order('date', { ascending: false });
@@ -172,21 +268,6 @@ export const fetchUserFinancialData = async (userId) => {
       limits = limitsData || [];
     } catch (e) {
       console.warn('Could not fetch limits:', e.message);
-    }
-    
-    // Get risk score (with error handling)
-    let riskScore = null;
-    try {
-      const { data: riskData } = await supabase
-        .from('risk_scores')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      riskScore = riskData;
-    } catch (e) {
-      console.warn('Could not fetch risk score:', e.message);
     }
     
     // Calculate spending by category
@@ -229,8 +310,8 @@ export const fetchUserFinancialData = async (userId) => {
       anomalyCount: anomalies?.length || 0,
       limitCount: limits?.length || 2,
       transactionCount: transactions?.length || 0,
-      riskScore: riskScore?.risk_score || 65,
-      riskLevel: riskScore?.risk_level || 'medium',
+      riskScore: 65,
+      riskLevel: 'medium',
       hasAnomalies: (anomalies?.length || 0) > 0,
       hasLimits: (limits?.length || 0) > 0
     };
@@ -259,39 +340,6 @@ export const fetchUserFinancialData = async (userId) => {
   }
 };
 
-// Create enhanced query with user data context
-const createEnhancedQuery = (query, userData) => {
-  if (!userData) return query;
-  
-  const contextPrompt = `You are ProphetLedger's AI Financial Assistant. Based on this user's data, provide 2-3 specific, actionable recommendations.
-
-USER FINANCIAL DATA:
-- Total Income (90 days): $${userData.totalIncome?.toLocaleString() || 0}
-- Total Expenses (90 days): $${userData.totalExpenses?.toLocaleString() || 0}
-- Net Savings: $${userData.savings?.toLocaleString() || 0}
-- Savings Rate: ${userData.savingsRate?.toFixed(1) || 0}%
-- Monthly Average Spend: $${userData.monthlyAverage?.toLocaleString() || 0}
-- Top 5 Spending Categories: ${userData.topSpendingCategories?.map(c => `${c.category} ($${c.amount.toLocaleString()})`).join(', ') || 'None'}
-- Pending Anomalies: ${userData.anomalyCount || 0}
-- Active Spending Limits: ${userData.limitCount || 0}
-
-REQUIREMENTS:
-1. If savings rate < 10% → suggest budget cuts in top categories
-2. If anomalies exist → prioritize reviewing them
-3. If spending > income → suggest specific reductions
-4. Be specific and actionable (e.g., "Reduce dining out by 30%" not "Spend less")
-5. Keep each recommendation under 100 characters
-
-Return as JSON:
-{
-  "recommendations": [
-    {"type": "warning|success|info", "title": "short title", "description": "actionable advice", "action": "button text"}
-  ]
-}`;
-
-  return contextPrompt;
-};
-
 export const getChatSuggestions = async () => {
   return [
     "How much did I spend?",
@@ -301,7 +349,7 @@ export const getChatSuggestions = async () => {
     "How can I save more money?",
     "Explain this page",
     "What are my top spending categories?",
-    "Am I on track with my budget?"
+    "Forecast my spending"
   ];
 };
 
