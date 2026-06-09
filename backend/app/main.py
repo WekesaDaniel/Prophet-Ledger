@@ -488,12 +488,14 @@ async def get_kpis(mode: str = "personal"):
     ]
 
 
+# backend/app/main.py - Add this endpoint (replace any existing /api/dss/risk/score)
+
 @app.get("/api/dss/risk/score")
-async def get_risk_score(
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """Get dynamic risk score based on anomalies and transactions"""
+async def get_risk_score(request: Request):
+    """Calculate dynamic risk score based on anomalies and transactions"""
+    
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     
     # Get current user
     auth_header = request.headers.get("Authorization")
@@ -507,8 +509,66 @@ async def get_risk_score(
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    # Calculate risk score using the service
-    risk_service = RiskScoreService(db)
-    risk_data = risk_service.calculate_user_risk_score(user_id)
-    
-    return risk_data
+    try:
+        # Fetch anomalies count
+        anomalies_response = supabase.table("anomalies")\
+            .select("id, anomaly_score, status")\
+            .eq("user_id", user_id)\
+            .execute()
+        
+        anomalies = anomalies_response.data or []
+        pending_count = len([a for a in anomalies if a.get('status') == 'pending'])
+        total_count = len(anomalies)
+        
+        # Calculate average anomaly score
+        if anomalies:
+            avg_score = sum(a.get('anomaly_score', 0) or 0 for a in anomalies) / total_count
+            max_score = max(a.get('anomaly_score', 0) or 0 for a in anomalies)
+            anomaly_severity = (avg_score * 0.4 + max_score * 0.6)
+        else:
+            anomaly_severity = 0
+        
+        # Calculate risk score based on anomalies
+        if pending_count == 0:
+            base_score = max(10, anomaly_severity * 0.5)
+        else:
+            base_score = min(90, (pending_count * 10) + (anomaly_severity * 0.7))
+        
+        # Add ML model influence if available
+        model = hf_loader.load_isolation_forest()
+        if model:
+            base_score = min(95, base_score + 5)  # Boost if ML available
+        
+        risk_score = round(base_score)
+        
+        # Determine risk level
+        if risk_score >= 70:
+            risk_level = "high"
+            recommendation = f"⚠️ High risk detected. Review {pending_count} pending anomalies."
+        elif risk_score >= 40:
+            risk_level = "medium"
+            recommendation = f"📊 Medium risk level. Monitor your {pending_count} pending anomalies."
+        else:
+            risk_level = "low"
+            recommendation = "✅ Low risk level. Your financial behavior is stable."
+        
+        return {
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "active_anomalies": pending_count,
+            "total_anomalies": total_count,
+            "recommendation": recommendation,
+            "trend": "stable"
+        }
+        
+    except Exception as e:
+        print(f"Risk score error: {e}")
+        # Fallback response
+        return {
+            "risk_score": 50,
+            "risk_level": "medium",
+            "active_anomalies": 0,
+            "total_anomalies": 0,
+            "recommendation": "Unable to calculate risk score at this time",
+            "trend": "stable"
+        }
