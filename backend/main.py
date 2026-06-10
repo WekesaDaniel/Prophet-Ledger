@@ -12,9 +12,6 @@ from supabase import create_client, Client
 from groq import Groq
 
 
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
-from pydantic import BaseModel
 
 from app.services.hf_model_loader import hf_loader
 
