@@ -8,7 +8,6 @@ import {
 import api from '../../services/api';
 import { supabase } from '../../services/supabaseClient';
 import toast from 'react-hot-toast';
-import { hf_loader } from '../../services/hf_model_loader';
 
 const AnomalyTable = ({ limit = null }) => {
   const [anomalies, setAnomalies] = useState([]);
@@ -27,144 +26,182 @@ const AnomalyTable = ({ limit = null }) => {
     avgRiskScore: 0
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [checkingInProgress, setCheckingInProgress] = useState(false);
 
   const normalizeCategory = (cat) => {
     if (!cat) return 'Other';
     return cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
   };
 
-  const fetchData = useCallback(async () => {
-    await Promise.all([
-      fetchAnomalies(),
-      fetchUserLimits(),
-      fetchStats()
-    ]);
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const fetchStats = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('anomalies')
-        .select('status, anomaly_score')
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      const anomaliesData = data || [];
-      const total = anomaliesData.length;
-      const pending = anomaliesData.filter(a => a.status === 'pending').length;
-      const reviewed = anomaliesData.filter(a => a.status === 'reviewed').length;
-      const avgScore = anomaliesData.reduce((sum, a) => sum + (a.anomaly_score || 0), 0) / (total || 1);
-
-      setStats({
-        totalAnomalies: total,
-        pendingCount: pending,
-        reviewedCount: reviewed,
-        avgRiskScore: Math.round(avgScore)
-      });
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
+  // Calculate total spending for a category within a period
+  const calculatePeriodSpending = async (userId, category, period, currentTransactionId = null) => {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch(period) {
+      case 'daily':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'weekly':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'monthly':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+      case 'per_transaction':
+        return 0; // No aggregation needed
+      default:
+        startDate.setMonth(now.getMonth() - 1);
     }
+    
+    let query = supabase
+      .from('transactions')
+      .select('amount')
+      .eq('user_id', userId)
+      .eq('category', category)
+      .eq('type', 'expense')
+      .gte('date', startDate.toISOString().split('T')[0]);
+    
+    // Exclude current transaction if provided (for updates)
+    if (currentTransactionId) {
+      query = query.neq('id', currentTransactionId);
+    }
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    const total = (data || []).reduce((sum, t) => sum + (t.amount || 0), 0);
+    return total;
   };
 
-  const fetchUserLimits = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('user_limits')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_active', true);
-
-      if (error) throw error;
-      setUserLimits(data || []);
-    } catch (error) {
-      console.error('Failed to fetch limits:', error);
+  // Check if a single transaction violates limits
+  const checkTransactionAgainstLimits = async (transaction, limits, userId) => {
+    const normalizedCat = normalizeCategory(transaction.category);
+    const limit = limits.find(l => normalizeCategory(l.category) === normalizedCat && l.is_active);
+    
+    if (!limit) return null;
+    
+    let amountToCheck = transaction.amount;
+    
+    // For periodic limits, check cumulative spending
+    if (limit.period !== 'per_transaction') {
+      const periodSpending = await calculatePeriodSpending(
+        userId, 
+        normalizedCat, 
+        limit.period,
+        transaction.id
+      );
+      amountToCheck = periodSpending + transaction.amount;
     }
+    
+    if (amountToCheck > limit.limit_amount) {
+      const excessAmount = amountToCheck - limit.limit_amount;
+      const excessPercent = (excessAmount / limit.limit_amount) * 100;
+      
+      let reason = '';
+      if (limit.period === 'per_transaction') {
+        reason = `Transaction of $${transaction.amount.toLocaleString()} exceeded the $${limit.limit_amount.toLocaleString()} limit for ${normalizedCat} by ${Math.round(excessPercent)}%`;
+      } else {
+        const periodText = limit.period === 'monthly' ? 'this month' : limit.period === 'weekly' ? 'this week' : 'today';
+        reason = `Total ${normalizedCat} spending of $${amountToCheck.toLocaleString()} (including this transaction) exceeds your $${limit.limit_amount.toLocaleString()} ${limit.period} limit by ${Math.round(excessPercent)}%`;
+      }
+      
+      return {
+        user_id: userId,
+        transaction_id: transaction.id,
+        amount: transaction.amount,
+        description: transaction.description,
+        category: normalizedCat,
+        anomaly_score: Math.min(95, 50 + Math.floor(excessPercent / 2)),
+        reason: reason,
+        status: 'pending',
+        created_at: transaction.date || new Date().toISOString().split('T')[0]
+      };
+    }
+    
+    return null;
   };
 
-  const checkAndCreateAnomalies = async (category, limitValue = null) => {
+  const checkAndCreateAnomalies = async (specificCategory = null, specificLimit = null) => {
+    // Prevent concurrent checks
+    if (checkingInProgress) {
+      console.log('Anomaly check already in progress');
+      return 0;
+    }
+    
+    setCheckingInProgress(true);
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const targetCategory = category || null;
-      const targetLimit = limitValue;
-
+      if (!user) return 0;
+      
+      // Get active limits
+      let activeLimits = [...userLimits];
+      if (specificLimit && specificCategory) {
+        activeLimits = [{ category: specificCategory, limit_amount: specificLimit, period: limitPeriod, is_active: true }];
+      } else if (activeLimits.length === 0) {
+        const { data: limits } = await supabase
+          .from('user_limits')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+        activeLimits = limits || [];
+        setUserLimits(activeLimits);
+      }
+      
+      if (activeLimits.length === 0) return 0;
+      
+      // Get transactions to check
       let query = supabase
         .from('transactions')
         .select('*')
         .eq('user_id', user.id)
         .eq('type', 'expense');
-
-      if (targetCategory) {
-        query = query.eq('category', targetCategory);
+      
+      if (specificCategory) {
+        query = query.eq('category', specificCategory);
       }
-
+      
       const { data: transactions, error } = await query;
-
       if (error) throw error;
-
-      const limitMap = new Map();
-      if (!targetLimit) {
-        userLimits.forEach(limit => {
-          limitMap.set(normalizeCategory(limit.category), limit);
-        });
-      }
-
+      
       const newAnomalies = [];
-
+      
       for (const transaction of transactions || []) {
-        const normalizedCat = normalizeCategory(transaction.category);
-        const limit = targetLimit ? { limit_amount: targetLimit } : limitMap.get(normalizedCat);
+        const anomaly = await checkTransactionAgainstLimits(transaction, activeLimits, user.id);
         
-        if (limit && transaction.amount > limit.limit_amount) {
+        if (anomaly) {
+          // Check if anomaly already exists
           const { data: existing } = await supabase
             .from('anomalies')
             .select('id')
             .eq('transaction_id', transaction.id)
             .single();
-
+          
           if (!existing) {
-            const excessPercent = ((transaction.amount - limit.limit_amount) / limit.limit_amount) * 100;
-            newAnomalies.push({
-              user_id: user.id,
-              transaction_id: transaction.id,
-              amount: transaction.amount,
-              description: transaction.description,
-              category: normalizedCat,
-              anomaly_score: Math.min(95, 50 + Math.floor(excessPercent / 2)),
-              reason: `Transaction of $${transaction.amount.toLocaleString()} exceeded $${limit.limit_amount} limit for ${normalizedCat} by ${Math.round(excessPercent)}%`,
-              status: 'pending',
-              created_at: transaction.date || new Date().toISOString()
-            });
+            newAnomalies.push(anomaly);
           }
         }
       }
-
+      
+      // Batch insert new anomalies
       if (newAnomalies.length > 0) {
         const { error: insertError } = await supabase
           .from('anomalies')
           .insert(newAnomalies);
-
+        
         if (insertError) throw insertError;
         
         toast.success(`${newAnomalies.length} new anomaly(s) detected based on your spending limits!`);
       }
-
+      
       return newAnomalies.length;
     } catch (error) {
       console.error('Failed to check transactions for anomalies:', error);
+      toast.error('Failed to check for anomalies');
       return 0;
+    } finally {
+      setCheckingInProgress(false);
     }
   };
 
@@ -173,20 +210,29 @@ const AnomalyTable = ({ limit = null }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
-
-      // First, check for any transactions exceeding limits
-      if (userLimits.length > 0) {
+      
+      // Get active limits first
+      const { data: limits } = await supabase
+        .from('user_limits')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+      
+      setUserLimits(limits || []);
+      
+      // Only check for anomalies if there are active limits
+      if (limits && limits.length > 0) {
         await checkAndCreateAnomalies();
       }
-
+      
       const { data, error } = await supabase
         .from('anomalies')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
-
+      
       if (error) throw error;
-
+      
       setAnomalies(data || []);
     } catch (error) {
       console.error('Failed to fetch anomalies:', error);
@@ -201,7 +247,7 @@ const AnomalyTable = ({ limit = null }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
-
+      
       const { error } = await supabase
         .from('anomalies')
         .update({ 
@@ -210,9 +256,9 @@ const AnomalyTable = ({ limit = null }) => {
           reviewed_at: new Date().toISOString()
         })
         .eq('id', anomalyId);
-
+      
       if (error) throw error;
-
+      
       setAnomalies(prev => prev.map(a => 
         a.id === anomalyId ? { ...a, status: action } : a
       ));
@@ -226,20 +272,20 @@ const AnomalyTable = ({ limit = null }) => {
       setReviewing(null);
     }
   };
-
+  
   const handleSetLimit = async () => {
     if (!selectedCategory || !limitAmount) {
       toast.error('Please select a category and enter a limit amount');
       return;
     }
-
+    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
-
+      
       const normalizedCategory = normalizeCategory(selectedCategory);
       const limitValue = parseFloat(limitAmount);
-
+      
       const { error } = await supabase
         .from('user_limits')
         .upsert({
@@ -252,66 +298,111 @@ const AnomalyTable = ({ limit = null }) => {
         }, {
           onConflict: 'user_id,category'
         });
-
+      
       if (error) throw error;
-
-      toast.success(`Limit of $${limitAmount} set for ${normalizedCategory}`);
+      
+      toast.success(`Limit of $${limitValue.toLocaleString()} set for ${normalizedCategory} (${limitPeriod})`);
       
       setShowLimitModal(false);
       setSelectedCategory('');
       setLimitAmount('');
       
+      // Refresh limits and check for anomalies
       await fetchUserLimits();
-      
-      // Immediately check for anomalies with the new limit
-      const anomalyCount = await checkAndCreateAnomalies(normalizedCategory, limitValue);
-      
-      if (anomalyCount > 0) {
-        await fetchAnomalies();
-      }
+      await checkAndCreateAnomalies(normalizedCategory, limitValue);
+      await fetchAnomalies();
       
     } catch (error) {
       console.error('Failed to set limit:', error);
       toast.error('Failed to set limit');
     }
   };
-
+  
   const handleDeleteLimit = async (category) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user');
-
+      
       const { error } = await supabase
         .from('user_limits')
         .update({ is_active: false })
         .eq('user_id', user.id)
         .eq('category', category);
-
+      
       if (error) throw error;
-
+      
       toast.success(`Limit removed for ${category}`);
       await fetchUserLimits();
+      await fetchAnomalies(); // Refresh anomalies (old ones remain but no new ones)
     } catch (error) {
       console.error('Failed to delete limit:', error);
       toast.error('Failed to remove limit');
     }
   };
-
+  
+  const fetchUserLimits = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from('user_limits')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+      
+      if (error) throw error;
+      setUserLimits(data || []);
+    } catch (error) {
+      console.error('Failed to fetch limits:', error);
+    }
+  };
+  
+  const fetchStats = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from('anomalies')
+        .select('status, anomaly_score')
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      const anomaliesData = data || [];
+      const total = anomaliesData.length;
+      const pending = anomaliesData.filter(a => a.status === 'pending').length;
+      const reviewed = anomaliesData.filter(a => a.status === 'reviewed').length;
+      const avgScore = anomaliesData.reduce((sum, a) => sum + (a.anomaly_score || 0), 0) / (total || 1);
+      
+      setStats({
+        totalAnomalies: total,
+        pendingCount: pending,
+        reviewedCount: reviewed,
+        avgRiskScore: Math.round(avgScore)
+      });
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+    }
+  };
+  
   const refreshAnomalies = async () => {
     setRefreshing(true);
+    await fetchUserLimits();
     await checkAndCreateAnomalies();
     await fetchAnomalies();
     setRefreshing(false);
     toast.success('Anomalies refreshed');
   };
-
+  
   const getRiskLevel = (score) => {
     if (score >= 80) return { label: 'Critical', color: 'text-red-700 bg-red-100', badge: 'bg-red-600' };
     if (score >= 60) return { label: 'High', color: 'text-orange-700 bg-orange-100', badge: 'bg-orange-600' };
     if (score >= 40) return { label: 'Medium', color: 'text-yellow-700 bg-yellow-100', badge: 'bg-yellow-600' };
     return { label: 'Low', color: 'text-green-700 bg-green-100', badge: 'bg-green-600' };
   };
-
+  
   const filteredAnomalies = filter === 'all' 
     ? anomalies 
     : anomalies.filter(a => a.status === filter);
@@ -319,9 +410,15 @@ const AnomalyTable = ({ limit = null }) => {
   const displayAnomalies = limit 
     ? filteredAnomalies.slice(0, limit) 
     : filteredAnomalies;
-
+  
   const categories = [...new Set(anomalies.map(a => a.category).filter(Boolean))];
-
+  
+  useEffect(() => {
+    fetchUserLimits();
+    fetchAnomalies();
+    fetchStats();
+  }, []);
+  
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-6">
@@ -331,7 +428,7 @@ const AnomalyTable = ({ limit = null }) => {
       </div>
     );
   }
-
+  
   return (
     <>
       {/* Stats Cards */}
@@ -353,21 +450,21 @@ const AnomalyTable = ({ limit = null }) => {
           <div className="text-xs text-gray-500">Avg Risk Score</div>
         </div>
       </div>
-
+      
       {/* Main Table */}
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         <div className="p-4 border-b flex justify-between items-center flex-wrap gap-2">
           <h3 className="text-lg font-semibold flex items-center">
             <AlertTriangle className="w-5 h-5 mr-2 text-yellow-500" />
-            Anomaly Detection
+            Anomaly Detection (Rule-Based)
           </h3>
           <div className="flex space-x-2">
             <button
               onClick={refreshAnomalies}
-              disabled={refreshing}
+              disabled={refreshing || checkingInProgress}
               className="px-3 py-1 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center gap-1"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${refreshing || checkingInProgress ? 'animate-spin' : ''}`} />
               Refresh
             </button>
             <button
@@ -382,7 +479,7 @@ const AnomalyTable = ({ limit = null }) => {
             <button onClick={() => setFilter('reviewed')} className={`px-3 py-1 text-sm rounded-lg ${filter === 'reviewed' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Reviewed</button>
           </div>
         </div>
-
+        
         {/* User Limits Summary */}
         {userLimits.length > 0 && (
           <div className="p-3 bg-blue-50 border-b flex flex-wrap gap-2 items-center">
@@ -403,195 +500,204 @@ const AnomalyTable = ({ limit = null }) => {
             ))}
           </div>
         )}
-      
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transaction</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Risk Level</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {displayAnomalies.length === 0 ? (
-              <tr>
-                <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
-                  <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-2" />
-                  <p>No anomalies detected! Your transactions look normal.</p>
-                  <p className="text-xs mt-1">Set custom spending limits to monitor specific categories.</p>
-                 </td>
-              </tr>
-            ) : (
-              displayAnomalies.map(anomaly => {
-                const risk = getRiskLevel(anomaly.anomaly_score);
-                return (
-                  <tr key={anomaly.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm">{anomaly.created_at?.split('T')[0] || 'N/A'}</td>
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium">{anomaly.description || 'Unknown'}</p>
-                        <p className="text-xs text-gray-500 flex items-center gap-1">
-                          <Tag className="w-3 h-3" />
-                          {anomaly.category || 'Uncategorized'}
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-red-600">
-                      ${anomaly.amount?.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 bg-gray-200 rounded-full h-2">
-                          <div className={`${risk.badge} rounded-full h-2`} style={{ width: `${anomaly.anomaly_score}%` }}></div>
-                        </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${risk.color}`}>
-                          {risk.label} {anomaly.anomaly_score}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm max-w-xs">
-                      <p className="text-xs whitespace-pre-wrap">{anomaly.reason || 'Unusual pattern detected'}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      {anomaly.status === 'pending' ? (
-                        <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1 w-fit">
-                          <Clock className="w-3 h-3" />
-                          Pending Review
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full flex items-center gap-1 w-fit">
-                          <CheckCircle className="w-3 h-3" />
-                          Reviewed
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {anomaly.status === 'pending' && (
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => handleReview(anomaly.id, 'reviewed')}
-                            disabled={reviewing === anomaly.id}
-                            className="text-green-600 hover:text-green-800 flex items-center space-x-1"
-                          >
-                            {reviewing === anomaly.id ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                            <span className="text-sm">Approve</span>
-                          </button>
-                          <button 
-                            onClick={() => handleReview(anomaly.id, 'false_positive')}
-                            disabled={reviewing === anomaly.id}
-                            className="text-red-600 hover:text-red-800 flex items-center space-x-1"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span className="text-sm">Dismiss</span>
-                          </button>
-                        </div>
-                      )}
-                      {anomaly.status === 'reviewed' && (
-                        <span className="text-xs text-gray-400">Reviewed</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {/* Set Limit Modal */}
-    {showLimitModal && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl max-w-md w-full p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Set Spending Limit
-            </h2>
-            <button onClick={() => setShowLimitModal(false)} className="text-gray-500 hover:text-gray-700">
-              <XCircle className="w-5 h-5" />
-            </button>
+        
+        {userLimits.length === 0 && (
+          <div className="p-3 bg-yellow-50 border-b">
+            <p className="text-sm text-yellow-800 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              No spending limits set. Click "Set Limits" to start monitoring your transactions.
+            </p>
           </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select Category</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat} className="capitalize">{cat}</option>
-                ))}
-                <option value="Groceries">Groceries</option>
-                <option value="Dining">Dining</option>
-                <option value="Shopping">Shopping</option>
-                <option value="Transport">Transport</option>
-                <option value="Entertainment">Entertainment</option>
-                <option value="Utilities">Utilities</option>
-                <option value="Health">Health</option>
-                <option value="Rent">Rent</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Limit Amount ($)</label>
-              <input
-                type="number"
-                value={limitAmount}
-                onChange={(e) => setLimitAmount(e.target.value)}
-                placeholder="Enter amount"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                min="0"
-                step="0.01"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
-              <select
-                value={limitPeriod}
-                onChange={(e) => setLimitPeriod(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="monthly">Monthly</option>
-                <option value="weekly">Weekly</option>
-                <option value="daily">Daily</option>
-                <option value="per_transaction">Per Transaction</option>
-              </select>
-            </div>
-            
-            <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
-              <p className="font-medium">Note:</p>
-              <p>When you set a limit, we'll automatically check all existing transactions and flag any that exceed this limit as anomalies.</p>
-            </div>
-            
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={() => setShowLimitModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
+        )}
+        
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transaction</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Risk Level</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {displayAnomalies.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                    <CheckCircle className="w-12 h-12 mx-auto text-green-500 mb-2" />
+                    <p>No anomalies detected! All transactions are within your limits.</p>
+                    <p className="text-xs mt-1">Set custom spending limits to monitor specific categories.</p>
+                  </td>
+                </tr>
+              ) : (
+                displayAnomalies.map(anomaly => {
+                  const risk = getRiskLevel(anomaly.anomaly_score);
+                  return (
+                    <tr key={anomaly.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm">{anomaly.created_at?.split('T')[0] || 'N/A'}</td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium">{anomaly.description || 'Unknown'}</p>
+                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                            <Tag className="w-3 h-3" />
+                            {anomaly.category || 'Uncategorized'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium text-red-600">
+                        ${anomaly.amount?.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 bg-gray-200 rounded-full h-2">
+                            <div className={`${risk.badge} rounded-full h-2`} style={{ width: `${anomaly.anomaly_score}%` }}></div>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${risk.color}`}>
+                            {risk.label} {anomaly.anomaly_score}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm max-w-xs">
+                        <p className="text-xs whitespace-pre-wrap">{anomaly.reason || 'Unusual pattern detected'}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {anomaly.status === 'pending' ? (
+                          <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full flex items-center gap-1 w-fit">
+                            <Clock className="w-3 h-3" />
+                            Pending Review
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full flex items-center gap-1 w-fit">
+                            <CheckCircle className="w-3 h-3" />
+                            Reviewed
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {anomaly.status === 'pending' && (
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => handleReview(anomaly.id, 'reviewed')}
+                              disabled={reviewing === anomaly.id}
+                              className="text-green-600 hover:text-green-800 flex items-center space-x-1"
+                            >
+                              {reviewing === anomaly.id ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                              <span className="text-sm">Approve</span>
+                            </button>
+                            <button 
+                              onClick={() => handleReview(anomaly.id, 'false_positive')}
+                              disabled={reviewing === anomaly.id}
+                              className="text-red-600 hover:text-red-800 flex items-center space-x-1"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              <span className="text-sm">Dismiss</span>
+                            </button>
+                          </div>
+                        )}
+                        {anomaly.status === 'reviewed' && (
+                          <span className="text-xs text-gray-400">Reviewed</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      {/* Set Limit Modal */}
+      {showLimitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Set Spending Limit
+              </h2>
+              <button onClick={() => setShowLimitModal(false)} className="text-gray-500 hover:text-gray-700">
+                <XCircle className="w-5 h-5" />
               </button>
-              <button
-                onClick={handleSetLimit}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Set Limit & Check Transactions
-              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select Category</option>
+                  <option value="Groceries">Groceries</option>
+                  <option value="Dining">Dining</option>
+                  <option value="Shopping">Shopping</option>
+                  <option value="Transport">Transport</option>
+                  <option value="Entertainment">Entertainment</option>
+                  <option value="Utilities">Utilities</option>
+                  <option value="Health">Health</option>
+                  <option value="Rent">Rent</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Limit Amount ($)</label>
+                <input
+                  type="number"
+                  value={limitAmount}
+                  onChange={(e) => setLimitAmount(e.target.value)}
+                  placeholder="Enter amount"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                <select
+                  value={limitPeriod}
+                  onChange={(e) => setLimitPeriod(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="per_transaction">Per Transaction</option>
+                  <option value="daily">Daily (Rolling 24h)</option>
+                  <option value="weekly">Weekly (Last 7 days)</option>
+                  <option value="monthly">Monthly (Last 30 days)</option>
+                </select>
+              </div>
+              
+              <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+                <p className="font-medium">How it works:</p>
+                <p>• <strong>Per Transaction:</strong> Flags individual transactions over the limit</p>
+                <p>• <strong>Daily/Weekly/Monthly:</strong> Flags when total spending exceeds the limit</p>
+                <p>• All existing transactions will be checked immediately</p>
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowLimitModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSetLimit}
+                  disabled={checkingInProgress}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {checkingInProgress ? 'Checking...' : 'Set Limit & Check Transactions'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
     </>
   );
 };
