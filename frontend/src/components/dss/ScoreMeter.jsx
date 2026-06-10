@@ -4,7 +4,7 @@ import {
   Loader, TrendingUp, TrendingDown, Info, Shield, 
   AlertTriangle, CheckCircle, Activity, Clock, 
   DollarSign, PieChart, Zap, ArrowUp, ArrowDown,
-  XCircle, Eye, Calendar, Brain
+  XCircle, Eye, Calendar, Brain, RefreshCw  // <-- ADD RefreshCw here
 } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import api from '../../services/api';
@@ -83,7 +83,14 @@ const ScoreMeter = () => {
           score: 68,
           trend: 'stable',
           active_anomalies: 0,
-          recommendation: "Unable to calculate risk score from available data"
+          recommendation: "Unable to calculate risk score from available data",
+          components: {
+            anomaly_score: 50,
+            limit_violation_score: 50,
+            volatility_score: 50,
+            velocity_score: 50,
+            trend_score: 50
+          }
         });
       }
     } finally {
@@ -276,7 +283,7 @@ const ScoreMeter = () => {
     
     return {
       score: Math.min(100, combinedScore),
-      violations: violations.slice(0, 5) // Return top 5 violations
+      violations: violations.slice(0, 5)
     };
   };
 
@@ -315,7 +322,6 @@ const ScoreMeter = () => {
   const calculateVelocityRisk = (transactions) => {
     if (transactions.length === 0) return { score: 0 };
     
-    // Get date range
     const dates = transactions.map(t => new Date(t.date));
     const minDate = new Date(Math.min(...dates));
     const maxDate = new Date(Math.max(...dates));
@@ -353,11 +359,9 @@ const ScoreMeter = () => {
     const newest = recentScores[0];
     
     if (newest < oldest) {
-      // Risk is decreasing (good)
       const improvement = (oldest - newest) / oldest;
       return { score: Math.max(0, 50 - improvement * 50) };
     } else {
-      // Risk is increasing (bad)
       const increase = (newest - oldest) / Math.max(oldest, 1);
       return { score: Math.min(100, 50 + increase * 50) };
     }
@@ -468,13 +472,19 @@ const ScoreMeter = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
-      await supabase.from('risk_scores').insert({
+      // Check if risk_scores table exists and has correct schema
+      const { error } = await supabase.from('risk_scores').insert({
         user_id: user.id,
         risk_score: riskData.score,
         risk_level: getRiskLevelText(riskData.score),
-        active_anomalies: riskData.active_anomalies,
-        recommendation: riskData.recommendation.substring(0, 500)
+        active_anomalies: riskData.active_anomalies || 0,
+        recommendation: (riskData.recommendation || '').substring(0, 500)
       });
+      
+      if (error) {
+        console.error('Error storing risk score:', error);
+        // Don't throw - this is non-critical
+      }
     } catch (error) {
       console.error('Failed to store risk score:', error);
     }
@@ -688,7 +698,7 @@ const ScoreMeter = () => {
                 <div>
                   <h4 className="text-sm font-semibold text-blue-800 mb-1">AI Recommendation</h4>
                   <p className="text-xs text-blue-700 leading-relaxed">
-                    {riskData?.recommendation}
+                    {riskData?.recommendation || 'Continue monitoring your transactions regularly.'}
                   </p>
                 </div>
               </div>
