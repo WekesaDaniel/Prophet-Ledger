@@ -93,20 +93,6 @@ const Forecasts = () => {
           )}
         </div>
 
-        {/* Period Selector */}
-        <div className="flex space-x-2 mb-6">
-          {['3m', '6m', '1y'].map(p => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-2 rounded-lg transition ${
-                period === p ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              {p === '3m' ? '3 Months' : p === '6m' ? '6 Months' : '1 Year'}
-            </button>
-          ))}
-        </div>
 
         {/* Charts */}
         <div className="grid grid-cols-1 gap-6 mb-8">
