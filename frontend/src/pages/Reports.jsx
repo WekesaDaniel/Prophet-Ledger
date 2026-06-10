@@ -4,7 +4,8 @@ import { useMode } from '../contexts/ModeContext';
 import { 
   BarChart2, Download, Calendar, FileText, Printer, 
   TrendingUp, TrendingDown, PieChart, Loader, 
-  ChevronLeft, ChevronRight, FileSpreadsheet, FileJson
+  ChevronLeft, ChevronRight, FileSpreadsheet, FileJson,
+  AlertTriangle  // <-- ADD THIS
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -109,23 +110,27 @@ const Reports = () => {
         percentage: totalExpenses > 0 ? (value / totalExpenses) * 100 : 0
       })).sort((a, b) => b.value - a.value);
 
-      // Monthly trend
+      // Monthly trend - ensure proper date sorting
       const monthlyData = {};
       transactions?.forEach(t => {
-        const month = new Date(t.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-        if (!monthlyData[month]) {
-          monthlyData[month] = { month, income: 0, expense: 0, net: 0 };
+        const date = new Date(t.date);
+        const month = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+        const monthIndex = date.getFullYear() * 12 + date.getMonth();
+        
+        if (!monthlyData[monthIndex]) {
+          monthlyData[monthIndex] = { month, income: 0, expense: 0, net: 0, sortKey: monthIndex };
         }
         if (t.type === 'income') {
-          monthlyData[month].income += t.amount;
+          monthlyData[monthIndex].income += t.amount;
         } else {
-          monthlyData[month].expense += t.amount;
+          monthlyData[monthIndex].expense += t.amount;
         }
-        monthlyData[month].net = monthlyData[month].income - monthlyData[month].expense;
+        monthlyData[monthIndex].net = monthlyData[monthIndex].income - monthlyData[monthIndex].expense;
       });
-      const monthlyTrend = Object.values(monthlyData).sort((a, b) => {
-        return new Date(a.month) - new Date(b.month);
-      });
+      
+      const monthlyTrend = Object.values(monthlyData)
+        .sort((a, b) => a.sortKey - b.sortKey)
+        .map(({ month, income, expense, net }) => ({ month, income, expense, net }));
 
       // Fetch anomalies in this period
       const { data: anomalies, error: aError } = await supabase
@@ -159,15 +164,15 @@ const Reports = () => {
       const headers = ['Date', 'Description', 'Category', 'Type', 'Amount', 'Vendor'];
       const rows = reportData.transactions.map(t => [
         t.date,
-        t.description || '',
+        `"${(t.description || '').replace(/"/g, '""')}"`, // Escape quotes for CSV
         t.category || '',
         t.type,
         t.amount,
-        t.vendor || ''
+        `"${(t.vendor || '').replace(/"/g, '""')}"`
       ]);
       
       const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -176,6 +181,7 @@ const Reports = () => {
       URL.revokeObjectURL(url);
       toast.success('Report exported successfully');
     } catch (error) {
+      console.error('Export error:', error);
       toast.error('Failed to export report');
     } finally {
       setExporting(false);
@@ -206,6 +212,7 @@ const Reports = () => {
       URL.revokeObjectURL(url);
       toast.success('JSON exported successfully');
     } catch (error) {
+      console.error('Export error:', error);
       toast.error('Failed to export JSON');
     } finally {
       setExporting(false);
@@ -213,10 +220,82 @@ const Reports = () => {
   };
 
   const printReport = () => {
-    window.print();
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print');
+      return;
+    }
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Prophet Ledger - Financial Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            h1 { color: #1e40af; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f3f4f6; }
+            .summary { display: flex; gap: 20px; margin: 20px 0; }
+            .card { padding: 15px; border-radius: 8px; background: #f9fafb; flex: 1; }
+            .positive { color: #10b981; }
+            .negative { color: #ef4444; }
+          </style>
+        </head>
+        <body>
+          <h1>Prophet Ledger Financial Report</h1>
+          <p>Generated: ${new Date().toLocaleString()}</p>
+          <div class="summary">
+            <div class="card">
+              <h3>Total Income</h3>
+              <p class="positive">${formatCurrency(reportData.summary.totalIncome)}</p>
+            </div>
+            <div class="card">
+              <h3>Total Expenses</h3>
+              <p class="negative">${formatCurrency(reportData.summary.totalExpenses)}</p>
+            </div>
+            <div class="card">
+              <h3>Net Savings</h3>
+              <p class="${reportData.summary.netSavings >= 0 ? 'positive' : 'negative'}">
+                ${formatCurrency(reportData.summary.netSavings)}
+              </p>
+            </div>
+          </div>
+          <h2>Transactions</h2>
+           <table>
+            <thead>
+              <tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th>Amount</th></tr>
+            </thead>
+            <tbody>
+              ${reportData.transactions.map(t => `
+                <tr>
+                  <td>${t.date}</td>
+                  <td>${t.description || ''}</td>
+                  <td>${t.category || 'Uncategorized'}</td>
+                  <td>${t.type}</td>
+                  <td class="${t.type === 'income' ? 'positive' : 'negative'}">
+                    ${t.type === 'income' ? '+' : '-'}${formatCurrency(t.amount)}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+           </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   const renderChart = () => {
+    if (reportData.monthlyTrend.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-80 text-gray-500">
+          <p>No data available for the selected period</p>
+        </div>
+      );
+    }
+
     switch (reportType) {
       case 'monthly':
         return (
@@ -234,11 +313,18 @@ const Reports = () => {
         );
       
       case 'expense':
+        if (reportData.categoryBreakdown.length === 0) {
+          return (
+            <div className="flex items-center justify-center h-80 text-gray-500">
+              <p>No expense data available</p>
+            </div>
+          );
+        }
         return (
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={reportData.categoryBreakdown}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
               <YAxis tickFormatter={(v) => `${currencySymbol}${v.toLocaleString()}`} />
               <Tooltip formatter={(v) => `${currencySymbol}${v.toLocaleString()}`} />
               <Legend />
@@ -262,6 +348,13 @@ const Reports = () => {
         );
       
       case 'category':
+        if (reportData.categoryBreakdown.length === 0) {
+          return (
+            <div className="flex items-center justify-center h-80 text-gray-500">
+              <p>No category data available</p>
+            </div>
+          );
+        }
         return (
           <ResponsiveContainer width="100%" height={350}>
             <RePieChart>
@@ -270,7 +363,7 @@ const Reports = () => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => percent > 0.05 ? `${name}: ${(percent * 100).toFixed(0)}%` : ''}
                 outerRadius={120}
                 fill="#8884d8"
                 dataKey="value"
@@ -300,32 +393,33 @@ const Reports = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto py-8 px-4">
+      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Financial Reports</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Financial Reports</h1>
             <p className="text-gray-600 mt-1">Generate and download custom financial reports</p>
           </div>
           <div className="flex gap-2">
             <button 
               onClick={exportToCSV} 
-              disabled={exporting}
-              className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+              disabled={exporting || reportData.transactions.length === 0}
+              className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>Export CSV</span>
             </button>
             <button 
               onClick={exportToJSON} 
-              disabled={exporting}
-              className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+              disabled={exporting || reportData.transactions.length === 0}
+              className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <FileJson className="w-4 h-4" />
               <span>Export JSON</span>
             </button>
             <button 
               onClick={printReport}
-              className="flex items-center space-x-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+              disabled={reportData.transactions.length === 0}
+              className="flex items-center space-x-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Printer className="w-4 h-4" />
               <span>Print</span>
@@ -338,14 +432,20 @@ const Reports = () => {
           {reportOptions.map(option => {
             const Icon = option.icon;
             const isActive = reportType === option.id;
+            const colorClasses = {
+              blue: isActive ? 'bg-blue-600 text-white' : 'hover:border-blue-200',
+              red: isActive ? 'bg-red-600 text-white' : 'hover:border-red-200',
+              green: isActive ? 'bg-green-600 text-white' : 'hover:border-green-200',
+              purple: isActive ? 'bg-purple-600 text-white' : 'hover:border-purple-200'
+            };
             return (
               <button
                 key={option.id}
                 onClick={() => setReportType(option.id)}
-                className={`p-4 rounded-lg text-center transition-all ${
+                className={`p-4 rounded-lg text-center transition-all border-2 ${
                   isActive 
-                    ? `bg-${option.color}-600 text-white shadow-lg` 
-                    : 'bg-white text-gray-700 hover:shadow-md'
+                    ? `${colorClasses[option.color]} shadow-lg border-transparent` 
+                    : 'bg-white text-gray-700 border-gray-200 hover:shadow-md'
                 }`}
               >
                 <Icon className={`w-6 h-6 mx-auto mb-2 ${isActive ? 'text-white' : `text-${option.color}-600`}`} />
@@ -356,12 +456,13 @@ const Reports = () => {
         </div>
 
         {/* Date Range Selector */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
           <div className="flex flex-wrap gap-4 items-center">
+            <label className="text-sm font-medium text-gray-700">Date Range:</label>
             <select 
               value={dateRange}
               onChange={(e) => setDateRange(e.target.value)}
-              className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="last7">Last 7 Days</option>
               <option value="last30">Last 30 Days</option>
@@ -371,28 +472,26 @@ const Reports = () => {
             </select>
             
             {dateRange === 'custom' && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <input
                   type="date"
                   value={customStartDate}
                   onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="px-3 py-2 border rounded-lg"
-                  placeholder="Start Date"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
-                <span className="self-center">to</span>
+                <span className="text-gray-500">to</span>
                 <input
                   type="date"
                   value={customEndDate}
                   onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="px-3 py-2 border rounded-lg"
-                  placeholder="End Date"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             )}
             
             <button 
               onClick={fetchReportData}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Calendar className="w-4 h-4" />
               <span>Update Report</span>
@@ -401,22 +500,30 @@ const Reports = () => {
         </div>
 
         {/* Report Preview */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Report Preview</h2>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Report Preview</h2>
           
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-green-50 rounded-lg p-4">
-              <p className="text-sm text-green-600">Total Income</p>
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+              <p className="text-sm text-green-700 font-medium">Total Income</p>
               <p className="text-2xl font-bold text-green-700">{formatCurrency(reportData.summary.totalIncome)}</p>
             </div>
-            <div className="bg-red-50 rounded-lg p-4">
-              <p className="text-sm text-red-600">Total Expenses</p>
+            <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200">
+              <p className="text-sm text-red-700 font-medium">Total Expenses</p>
               <p className="text-2xl font-bold text-red-700">{formatCurrency(reportData.summary.totalExpenses)}</p>
             </div>
-            <div className={`rounded-lg p-4 ${reportData.summary.netSavings >= 0 ? 'bg-blue-50' : 'bg-orange-50'}`}>
-              <p className={`text-sm ${reportData.summary.netSavings >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Net Savings</p>
-              <p className={`text-2xl font-bold ${reportData.summary.netSavings >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+            <div className={`rounded-lg p-4 border ${
+              reportData.summary.netSavings >= 0 
+                ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200' 
+                : 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200'
+            }`}>
+              <p className={`text-sm font-medium ${
+                reportData.summary.netSavings >= 0 ? 'text-blue-700' : 'text-orange-700'
+              }`}>Net Savings</p>
+              <p className={`text-2xl font-bold ${
+                reportData.summary.netSavings >= 0 ? 'text-blue-700' : 'text-orange-700'
+              }`}>
                 {formatCurrency(reportData.summary.netSavings)}
               </p>
             </div>
@@ -444,60 +551,73 @@ const Reports = () => {
           {/* Transactions Table */}
           <div className="mt-6">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold">Recent Transactions</h3>
+              <h3 className="font-semibold text-gray-900">Recent Transactions</h3>
               <p className="text-sm text-gray-500">{reportData.transactions.length} transactions found</p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Date</th>
-                    <th className="px-4 py-2 text-left">Description</th>
-                    <th className="px-4 py-2 text-left">Category</th>
-                    <th className="px-4 py-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {reportData.transactions.slice(0, 10).map(transaction => (
-                    <tr key={transaction.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2">{transaction.date}</td>
-                      <td className="px-4 py-2">
-                        {transaction.description}
-                        {transaction.vendor && <span className="text-xs text-gray-400 ml-1">({transaction.vendor})</span>}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${
-                          transaction.type === 'income' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {transaction.category || 'Uncategorized'}
-                        </span>
-                      </td>
-                      <td className={`px-4 py-2 text-right font-medium ${
-                        transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                      </td>
+            {reportData.transactions.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <p>No transactions found for the selected period</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {reportData.transactions.length > 10 && (
-                <div className="text-center text-sm text-gray-500 mt-2">
-                  Showing 10 of {reportData.transactions.length} transactions
-                </div>
-              )}
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {reportData.transactions.slice(0, 10).map(transaction => (
+                      <tr key={transaction.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-gray-700">{transaction.date}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-gray-900">{transaction.description || 'No description'}</span>
+                          {transaction.vendor && (
+                            <span className="text-xs text-gray-400 ml-2">({transaction.vendor})</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            transaction.type === 'income' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {transaction.category || 'Uncategorized'}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3 text-right font-medium ${
+                          transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {reportData.transactions.length > 10 && (
+                  <div className="text-center text-sm text-gray-500 mt-4 pt-3 border-t">
+                    Showing 10 of {reportData.transactions.length} transactions
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Category Summary */}
           {reportData.categoryBreakdown.length > 0 && (
-            <div className="mt-6 pt-4 border-t">
-              <h3 className="font-semibold mb-3">Spending by Category</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Spending by Category</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {reportData.categoryBreakdown.map(cat => (
-                  <div key={cat.name} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                    <span className="text-sm">{cat.name}</span>
-                    <span className="text-sm font-medium">{formatCurrency(cat.value)}</span>
+                  <div key={cat.name} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <span className="text-sm font-medium text-gray-700">{cat.name}</span>
+                    <div className="text-right">
+                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(cat.value)}</span>
+                      <span className="text-xs text-gray-500 ml-2">({cat.percentage.toFixed(1)}%)</span>
+                    </div>
                   </div>
                 ))}
               </div>
